@@ -306,17 +306,44 @@ def score_texte_danger(texte: str) -> Tuple[int, list]:
     return min(score, 100), raisons
 
 
+def est_bot_par_username(username: Optional[str]) -> bool:
+    """Retourne True si le pseudo respecte la convention Telegram des bots officiels (_bot en fin)."""
+    if not username:
+        return False
+    return username.lower().endswith("bot")
+
+
 async def analyser_compte(ident) -> str:
     """Analyse les métadonnées publiques d'un compte utilisateur Telegram."""
     ent = await user_client.get_entity(ident)
     if not isinstance(ent, types.User):
-        return "⚠️ Ce n'est pas un compte utilisateur (groupe, canal ou entité non valide)."
+        return "⚠️ Ce n'est pas un compte utilisateur (groupe ou canal)."
+
+    # Bot officiel via l'API Telegram
     if ent.bot:
-        return "🤖 **Bot Telegram officiel** (déclaré comme tel par l'API Telegram)."
+        return (
+            f"🤖 Bot Telegram officiel — @{ent.username or ent.id}\n"
+            "Créé via @BotFather. Pas un userbot suspect."
+        )
+
+    # Convention de nommage Telegram : tous les bots finissent par "bot"
+    if est_bot_par_username(ent.username):
+        return (
+            f"🤖 Bot Telegram officiel (convention de nommage)\n"
+            f"Le pseudo @{ent.username} se termine par « bot », "
+            "ce qui est une règle imposée par @BotFather pour tous les bots déclarés.\n"
+            "Pas un userbot suspect."
+        )
 
     full = await user_client(functions.users.GetFullUserRequest(ent))
     bio = (full.full_user.about or "").strip()
-    communs = full.full_user.common_chats_count or 0
+
+    # GetCommonChats est plus fiable que common_chats_count (qui dépend de la visibilité mutuelle)
+    try:
+        common_result = await user_client(functions.messages.GetCommonChatsRequest(user_id=ent, max_id=0, limit=100))
+        communs = len(common_result.chats)
+    except Exception:
+        communs = full.full_user.common_chats_count or 0
 
     auto, raisons = 0, []
 
@@ -420,25 +447,48 @@ async def cmd_analyser(event):
     if event.sender_id != OWNER_ID:
         return
     ident = event.pattern_match.group(1)
-    await event.respond(f"⏳ Analyse du compte `{ident}` en cours...")
+    await event.respond(f"⏳ Analyse de `{ident}` en cours...")
     try:
         ent = await user_client.get_entity(ident)
-        
+
+        # Bot officiel détecté par l'API
+        if getattr(ent, "bot", False):
+            await event.respond(
+                f"🤖 Bot Telegram officiel — @{ent.username or ent.id}\n"
+                "Créé via @BotFather. Pas un userbot suspect."
+            )
+            return
+
+        # Bot officiel détecté par la convention de nommage (_bot en fin de pseudo)
+        if est_bot_par_username(ent.username):
+            await event.respond(
+                f"🤖 Bot Telegram officiel (convention de nommage)\n"
+                f"@{ent.username} se termine par « bot » — règle imposée par @BotFather.\n"
+                "Pas un userbot suspect."
+            )
+            return
+
         # Récupérer les métadonnées
         full = await user_client(functions.users.GetFullUserRequest(ent))
         bio = (full.full_user.about or "").strip()
-        communs = full.full_user.common_chats_count or 0
-        
+
+        # GetCommonChats est plus fiable que common_chats_count (qui dépend de la visibilité mutuelle)
+        try:
+            common_result = await user_client(functions.messages.GetCommonChatsRequest(user_id=ent, max_id=0, limit=100))
+            communs = len(common_result.chats)
+        except Exception:
+            communs = full.full_user.common_chats_count or 0
+
         # Calculer les scores
         auto, raisons_auto = 0, []
         danger, raisons_danger = score_texte_danger(bio)
-        
+
         def ajouter(points: int, raison: str):
             nonlocal auto
             auto += points
             prefix = f"+{points}" if points > 0 else str(points)
             raisons_auto.append(f"{prefix} : {raison}")
-        
+
         if getattr(ent, "scam", False) or getattr(ent, "fake", False):
             ajouter(40, "Marqué SCAM/FAKE par Telegram")
         if await cas_banni(ent.id):
@@ -446,29 +496,29 @@ async def cmd_analyser(event):
         if not ent.photo:
             ajouter(15, "Aucune photo de profil")
         if not bio:
-            ajouter(10, "Bio (description) vide")
+            ajouter(10, "Bio vide")
         if not ent.username:
-            ajouter(5, "Pas d'identifiant public (@pseudo)")
+            ajouter(5, "Pas de @pseudo public")
         elif re.search(r"\d{4,}$", ent.username) or re.search(
             r"[bcdfghjklmnpqrstvwxz]{6,}", ent.username, re.I
         ):
-            ajouter(10, "Pseudo d'allure aléatoire (suite de chiffres ou consonnes)")
-        
+            ajouter(10, "Pseudo d'allure aléatoire")
+
         annee = annee_estimee(ent.id)
         if annee >= 2024:
-            ajouter(15, f"Compte récent (création estimée ~{annee})")
-        
+            ajouter(15, f"Compte récent (~{annee})")
+
         if communs == 0:
-            ajouter(5, "Aucun groupe en commun avec vous")
+            ajouter(5, "Aucun groupe en commun")
         if isinstance(ent.status, types.UserStatusEmpty):
-            ajouter(5, "Statut de présence : jamais vu en ligne")
+            ajouter(5, "Jamais vu en ligne")
         if getattr(ent, "premium", False):
-            ajouter(-5, "Compte Telegram Premium")
+            ajouter(-5, "Compte Premium")
         if getattr(ent, "verified", False):
-            ajouter(-30, "Compte officiel vérifié")
-        
+            ajouter(-30, "Compte vérifié")
+
         auto = max(0, min(auto, 100))
-        
+
         # Sauvegarder dans la base de données
         sauvegarder_analyse(
             chat_id=ent.id,
@@ -480,33 +530,28 @@ async def cmd_analyser(event):
             signaux_automatisation=raisons_auto,
             signaux_danger=raisons_danger
         )
-        
-        # Générer le rapport
+
+        # Générer le rapport (format concis)
         niveau = "ÉLEVÉ 🔴" if auto >= 60 else "MOYEN 🟠" if auto >= 30 else "FAIBLE 🟢"
         nom_affich = f"{ent.first_name or ''} {ent.last_name or ''}".strip() or "Sans Nom"
         pseudo_str = f" (@{ent.username})" if ent.username else ""
-        
+
         rep = [
-            f"🔎 **Rapport d'analyse pour :** {nom_affich}{pseudo_str}",
-            f"🆔 **ID Telegram :** `{ent.id}` (Création estimée : ~{annee})",
-            f"📊 **Probabilité d'automatisation :** **{auto} %** ({niveau})",
-            "",
-            "📌 **Signaux de profil détectés :**",
+            f"🔎 {nom_affich}{pseudo_str} — ID `{ent.id}` (~{annee})",
+            f"📊 Automatisation : {auto}% {niveau}",
         ]
         if raisons_auto:
-            rep.extend([f"  • {r}" for r in raisons_auto])
+            rep.append("Signaux : " + " · ".join(
+                r.split(" : ", 1)[-1] for r in raisons_auto
+            ))
         else:
-            rep.append("  • Aucun signal de risque particulier sur le profil.")
-        
+            rep.append("Aucun signal suspect sur le profil.")
+
         if danger > 0:
-            rep.append(
-                f"\n⚠️ **Danger détecté dans la bio ({danger} %) :** {', '.join(raisons_danger)}"
-            )
-        
-        rep.append(
-            "\nℹ️ *Ce score est une estimation explicable et non une preuve absolue.*"
-        )
-        
+            rep.append(f"⚠️ Danger (bio) : {danger}% — {', '.join(raisons_danger)}")
+
+        rep.append("ℹ️ Estimation, pas une preuve.")
+
         await event.respond("\n".join(rep))
     except Exception as e:
         await event.respond(f"❌ Impossible d'analyser `{ident}` : {e}")
