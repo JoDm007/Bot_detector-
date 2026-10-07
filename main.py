@@ -26,12 +26,23 @@ from veille import SURVEILLES, autre_ecrit, moi_ecris, rapport as rapport_compor
 DB_PATH = os.path.join("data", "analyses.db")
 
 
+def get_db() -> sqlite3.Connection:
+    """Ouvre une connexion SQLite avec WAL mode et timeout pour éviter les verrous."""
+    conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    # WAL mode = plusieurs lecteurs + 1 écrivain simultanément sans bloquer
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA synchronous=NORMAL")
+    conn.execute("PRAGMA busy_timeout=10000")
+    return conn
+
+
 def init_db() -> None:
     """Initialise la base de données avec les tables nécessaires."""
     os.makedirs("data", exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db()
     cursor = conn.cursor()
-    
+
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS analyses (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -47,7 +58,7 @@ def init_db() -> None:
             version_regles INTEGER DEFAULT 1
         )
     """)
-    
+
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS retours (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -57,7 +68,7 @@ def init_db() -> None:
             FOREIGN KEY (analyse_id) REFERENCES analyses(id)
         )
     """)
-    
+
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS surveillances (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -66,7 +77,28 @@ def init_db() -> None:
             date_debut TEXT NOT NULL
         )
     """)
-    
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS parametres (
+            cle TEXT PRIMARY KEY,
+            valeur TEXT NOT NULL,
+            description TEXT
+        )
+    """)
+
+    # Paramètres par défaut
+    defaults = [
+        ("seuil_bot", "60", "Score minimum pour classer un compte comme bot (%)"),
+        ("seuil_suspect", "30", "Score minimum pour classer un compte comme suspect (%)"),
+        ("cas_active", "1", "Interroger la base CAS lors des analyses (1=oui, 0=non)"),
+        ("dashboard_port", "8000", "Port du dashboard web"),
+        ("version_regles", "1", "Version actuelle du moteur de règles"),
+    ]
+    cursor.executemany(
+        "INSERT OR IGNORE INTO parametres (cle, valeur, description) VALUES (?, ?, ?)",
+        defaults
+    )
+
     conn.commit()
     conn.close()
 
@@ -82,32 +114,26 @@ def sauvegarder_analyse(
     signaux_danger: List[str]
 ) -> int:
     """Sauvegarde une analyse dans la base de données et renvoie l'ID."""
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db()
     cursor = conn.cursor()
-    
+
     date_iso = datetime.datetime.now().isoformat()
     cursor.execute("""
-        INSERT INTO analyses 
+        INSERT INTO analyses
         (chat_id, username, first_name, last_name, score_automatisation, score_danger,
          signaux_automatisation, signaux_danger, date_analyse)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
-        chat_id,
-        username,
-        first_name,
-        last_name,
-        score_automatisation,
-        score_danger,
-        str(signaux_automatisation),
-        str(signaux_danger),
-        date_iso
+        chat_id, username, first_name, last_name,
+        score_automatisation, score_danger,
+        str(signaux_automatisation), str(signaux_danger), date_iso
     ))
-    
+
     analyse_id = cursor.lastrowid
     conn.commit()
     conn.close()
 
-    # Si le serveur FastAPI est importé, notifier les clients WebSockets connectés
+    # Notifier les clients WebSocket du dashboard
     try:
         from server import ws_manager
         loop = asyncio.get_event_loop()
@@ -115,13 +141,9 @@ def sauvegarder_analyse(
             asyncio.create_task(ws_manager.broadcast({
                 "type": "new_analysis",
                 "data": {
-                    "id": analyse_id,
-                    "chat_id": chat_id,
-                    "username": username,
-                    "first_name": first_name,
-                    "score_automatisation": score_automatisation,
-                    "score_danger": score_danger,
-                    "date_analyse": date_iso
+                    "id": analyse_id, "chat_id": chat_id, "username": username,
+                    "first_name": first_name, "score_automatisation": score_automatisation,
+                    "score_danger": score_danger, "date_analyse": date_iso
                 }
             }))
     except Exception:
@@ -132,21 +154,15 @@ def sauvegarder_analyse(
 
 def recuperer_analyse(analyse_id: int) -> Optional[dict]:
     """Récupère une analyse par son ID."""
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    conn = get_db()
     cursor = conn.cursor()
-    
     cursor.execute("SELECT * FROM analyses WHERE id = ?", (analyse_id,))
     row = cursor.fetchone()
     conn.close()
-    
     if row:
         return {
-            "id": row["id"],
-            "chat_id": row["chat_id"],
-            "username": row["username"],
-            "first_name": row["first_name"],
-            "last_name": row["last_name"],
+            "id": row["id"], "chat_id": row["chat_id"], "username": row["username"],
+            "first_name": row["first_name"], "last_name": row["last_name"],
             "score_automatisation": row["score_automatisation"],
             "score_danger": row["score_danger"],
             "signaux_automatisation": eval(row["signaux_automatisation"]),
@@ -158,42 +174,54 @@ def recuperer_analyse(analyse_id: int) -> Optional[dict]:
 
 def sauvegarder_retour(analyse_id: int, verdict: str) -> None:
     """Enregistre le retour de l'utilisateur (humain/bot)."""
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db()
     cursor = conn.cursor()
-    
-    cursor.execute("""
-        INSERT INTO retours (analyse_id, verdict, date_retour)
-        VALUES (?, ?, ?)
-    """, (analyse_id, verdict, datetime.datetime.now().isoformat()))
-    
+    cursor.execute(
+        "INSERT INTO retours (analyse_id, verdict, date_retour) VALUES (?, ?, ?)",
+        (analyse_id, verdict, datetime.datetime.now().isoformat())
+    )
     conn.commit()
     conn.close()
 
 
 def ajouter_surveillance(chat_id: int, pseudo: Optional[str]) -> None:
     """Ajoute un chat à la liste des surveillés."""
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db()
     cursor = conn.cursor()
-    
-    cursor.execute("""
-        INSERT OR IGNORE INTO surveillances (chat_id, pseudo, date_debut)
-        VALUES (?, ?, ?)
-    """, (chat_id, pseudo, datetime.datetime.now().isoformat()))
-    
+    cursor.execute(
+        "INSERT OR IGNORE INTO surveillances (chat_id, pseudo, date_debut) VALUES (?, ?, ?)",
+        (chat_id, pseudo, datetime.datetime.now().isoformat())
+    )
     conn.commit()
     conn.close()
 
 
 def recuperer_surveilles() -> List[int]:
     """Récupère la liste des IDs de chats surveillés."""
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db()
     cursor = conn.cursor()
-    
     cursor.execute("SELECT chat_id FROM surveillances")
     rows = cursor.fetchall()
     conn.close()
-    
     return [row["chat_id"] for row in rows]
+
+
+def get_parametre(cle: str) -> Optional[str]:
+    """Lit un paramètre depuis la base."""
+    conn = get_db()
+    cursor = conn.cursor()
+    row = cursor.execute("SELECT valeur FROM parametres WHERE cle = ?", (cle,)).fetchone()
+    conn.close()
+    return row["valeur"] if row else None
+
+
+def set_parametre(cle: str, valeur: str) -> None:
+    """Met à jour un paramètre dans la base."""
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("UPDATE parametres SET valeur = ? WHERE cle = ?", (valeur, cle))
+    conn.commit()
+    conn.close()
 
 # Chargement des variables d'environnement depuis le fichier .env
 load_dotenv()
@@ -583,26 +611,44 @@ async def message_transfere(event):
     await event.respond("\n".join(rep))
 
 
-def start_web_server():
-    """Démarre le serveur web FastAPI du dashboard en arrière-plan."""
+def find_free_port(start: int = 8000, end: int = 8020) -> int:
+    """Trouve le premier port libre dans la plage donnée."""
+    import socket
+    for port in range(start, end):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            try:
+                s.bind(("127.0.0.1", port))
+                return port
+            except OSError:
+                continue
+    return start  # Fallback
+
+
+def start_web_server() -> int:
+    """Démarre le serveur web FastAPI du dashboard en arrière-plan. Retourne le port utilisé."""
     import uvicorn
     import threading
+
+    port = find_free_port(8000, 8020)
+
     def _run():
-        uvicorn.run("server:app", host="127.0.0.1", port=8000, log_level="warning")
-    thread = threading.Thread(target=_run, daemon=True)
+        uvicorn.run("server:app", host="127.0.0.1", port=port, log_level="warning")
+
+    thread = threading.Thread(target=_run, daemon=True, name="uvicorn-dashboard")
     thread.start()
-    print("🌐 Dashboard SOC actif sur : http://127.0.0.1:8000")
+    return port
 
 
 async def main():
     print("🚀 Démarrage des clients Telegram...")
-    # Initialiser la base de données au démarrage
     init_db()
-    print("✅ Base de données SQLite initialisée")
+    print("✅ Base de données SQLite initialisée (WAL mode actif)")
 
-    # Démarrer le serveur Web SOC Dashboard
-    start_web_server()
-    
+    port = start_web_server()
+    # Laisser le temps au serveur de démarrer
+    await asyncio.sleep(1)
+    print(f"🌐 Dashboard SOC actif sur : http://127.0.0.1:{port}")
+
     await bot_client.start(bot_token=BOT_TOKEN)
     await user_client.start()
     print("✅ Bot et Userbot connectés avec succès. En attente de commandes...")

@@ -3,195 +3,320 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Telegram Bot Sentinel - SOC Dashboard</title>
-  
-  <!-- Polices Google Font Inter & JetBrains Mono -->
+  <title>Telegram Bot Sentinel</title>
+
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
-  
-  <!-- Chart.js pour les graphiques interactifs -->
+
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-  
-  <!-- Feather Icons pour les icônes vectorielles nettes -->
   <script src="https://cdn.jsdelivr.net/npm/feather-icons/dist/feather.min.js"></script>
 
   <link rel="stylesheet" href="/static/index.css">
 </head>
 <body>
-  <div class="app-container">
-    
-    <!-- HEADER -->
-    <header class="soc-header">
-      <div class="brand-section">
-        <div class="brand-logo-hud">
-          <div class="radar-ring"></div>
-          <i data-feather="shield" style="color: var(--accent-cyan); width: 22px; height: 22px;"></i>
-        </div>
-        <div class="brand-titles">
-          <h1>TELEGRAM BOT SENTINEL</h1>
-          <p>
-            <i data-feather="terminal" style="width: 14px; height: 14px;"></i>
-            Plateforme de Supervision & Détection Comportementale Temps Réel
-          </p>
-        </div>
-      </div>
 
-      <div class="header-status-group">
-        <div class="live-badge" id="live-indicator">
-          <span class="live-dot"></span>
-          <span id="live-text">FLUX EN DIRECT ACTIF</span>
-        </div>
-        <button class="refresh-btn" id="btn-refresh" title="Rafraîchir les données">
-          <i data-feather="rotate-cw" style="width: 14px; height: 14px;"></i>
-          <span>Actualiser</span>
+  <!-- SIDEBAR NAV -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-brand">
+      <div class="brand-logo-hud">
+        <div class="radar-ring"></div>
+        <i data-feather="shield" style="color:var(--accent-cyan);width:20px;height:20px;"></i>
+      </div>
+      <div class="sidebar-brand-text">
+        <span class="sidebar-brand-name">BOT SENTINEL</span>
+        <span class="sidebar-brand-sub">v2.1 · SOC Dashboard</span>
+      </div>
+    </div>
+
+    <nav class="sidebar-nav">
+      <span class="nav-section-label">Navigation</span>
+      <a class="nav-item active" data-page="dashboard" href="#dashboard">
+        <i data-feather="activity"></i>
+        <span>Dashboard</span>
+      </a>
+      <a class="nav-item" data-page="analyses" href="#analyses">
+        <i data-feather="list"></i>
+        <span>Analyses</span>
+        <span class="nav-badge" id="nav-badge-analyses">0</span>
+      </a>
+      <a class="nav-item" data-page="surveillances" href="#surveillances">
+        <i data-feather="eye"></i>
+        <span>Surveillances</span>
+        <span class="nav-badge" id="nav-badge-surv">0</span>
+      </a>
+
+      <span class="nav-section-label" style="margin-top:1.5rem;">Système</span>
+      <a class="nav-item" data-page="parametres" href="#parametres">
+        <i data-feather="settings"></i>
+        <span>Paramètres</span>
+      </a>
+    </nav>
+
+    <div class="sidebar-footer">
+      <div class="live-badge" id="live-indicator">
+        <span class="live-dot"></span>
+        <span id="live-text">EN DIRECT</span>
+      </div>
+    </div>
+  </aside>
+
+  <!-- MAIN AREA -->
+  <div class="main-wrapper">
+
+    <!-- TOP BAR -->
+    <header class="topbar">
+      <button class="topbar-menu-btn" id="btn-toggle-sidebar" title="Menu">
+        <i data-feather="menu"></i>
+      </button>
+      <div class="topbar-title" id="topbar-title">Dashboard</div>
+      <div class="topbar-actions">
+        <button class="btn-icon" id="btn-refresh" title="Actualiser">
+          <i data-feather="rotate-cw"></i>
         </button>
       </div>
     </header>
 
-    <!-- METRICS KPI -->
-    <section class="kpi-grid">
-      <div class="kpi-card total">
-        <div class="kpi-top">
-          <span class="kpi-label">Comptes Analysés</span>
-          <span class="kpi-icon">📊</span>
-        </div>
-        <div class="kpi-val" id="kpi-total">0</div>
-        <div class="kpi-sub">Total des analyses enregistrées</div>
-      </div>
+    <!-- PAGE CONTENTS -->
+    <main class="page-content">
 
-      <div class="kpi-card bot">
-        <div class="kpi-top">
-          <span class="kpi-label">Bots Confirmés</span>
-          <span class="kpi-icon">🤖</span>
-        </div>
-        <div class="kpi-val" id="kpi-bots" style="color: #f87171;">0</div>
-        <div class="kpi-sub">Score d'automatisation ≥ 60%</div>
-      </div>
+      <!-- ==================== PAGE : DASHBOARD ==================== -->
+      <section class="page" id="page-dashboard">
 
-      <div class="kpi-card suspect">
-        <div class="kpi-top">
-          <span class="kpi-label">Profils Suspects</span>
-          <span class="kpi-icon">⚠️</span>
-        </div>
-        <div class="kpi-val" id="kpi-suspects" style="color: #fbbf24;">0</div>
-        <div class="kpi-sub">Score intermédiaire (30% - 59%)</div>
-      </div>
-
-      <div class="kpi-card human">
-        <div class="kpi-top">
-          <span class="kpi-label">Comptes Humains</span>
-          <span class="kpi-icon">👤</span>
-        </div>
-        <div class="kpi-val" id="kpi-humans" style="color: #34d399;">0</div>
-        <div class="kpi-sub">Score faible (< 30%)</div>
-      </div>
-    </section>
-
-    <!-- GRAPHIQUES INTERACTIFS -->
-    <section class="charts-grid">
-      <!-- Graphique 1 : Évolution temporelle des scores -->
-      <div class="panel-card">
-        <div class="panel-header">
-          <div class="panel-title">
-            <i data-feather="activity" style="color: var(--accent-cyan); width: 16px;"></i>
-            Chronologie du Flux & Dangerosité
+        <div class="kpi-grid">
+          <div class="kpi-card total">
+            <div class="kpi-top"><span class="kpi-label">Comptes Analysés</span><span class="kpi-icon">📊</span></div>
+            <div class="kpi-val" id="kpi-total">0</div>
+            <div class="kpi-sub">Total enregistré</div>
           </div>
-          <span class="panel-badge">Score Automatisation & Danger</span>
-        </div>
-        <div class="chart-wrapper">
-          <canvas id="timelineChart"></canvas>
-        </div>
-      </div>
-
-      <!-- Graphique 2 : Répartition Donut Bots vs Humains -->
-      <div class="panel-card">
-        <div class="panel-header">
-          <div class="panel-title">
-            <i data-feather="pie-chart" style="color: var(--accent-purple); width: 16px;"></i>
-            Typologie des Comptes
+          <div class="kpi-card bot">
+            <div class="kpi-top"><span class="kpi-label">Bots Détectés</span><span class="kpi-icon">🤖</span></div>
+            <div class="kpi-val" id="kpi-bots" style="color:#f87171">0</div>
+            <div class="kpi-sub">Score ≥ 60 %</div>
           </div>
-          <span class="panel-badge">Répartition</span>
-        </div>
-        <div class="chart-wrapper">
-          <canvas id="distributionChart"></canvas>
-        </div>
-      </div>
-
-      <!-- Graphique 3 : Radar / Top Signaux observés -->
-      <div class="panel-card">
-        <div class="panel-header">
-          <div class="panel-title">
-            <i data-feather="target" style="color: var(--status-suspect); width: 16px;"></i>
-            Top Signaux Détectés
+          <div class="kpi-card suspect">
+            <div class="kpi-top"><span class="kpi-label">Suspects</span><span class="kpi-icon">⚠️</span></div>
+            <div class="kpi-val" id="kpi-suspects" style="color:#fbbf24">0</div>
+            <div class="kpi-sub">Score 30 – 59 %</div>
           </div>
-          <span class="panel-badge">Fréquence</span>
-        </div>
-        <div class="chart-wrapper">
-          <canvas id="signalsChart"></canvas>
-        </div>
-      </div>
-    </section>
-
-    <!-- FLUX DÉTAILLÉ & INSPECTEUR LATÉRAL -->
-    <section class="feed-section">
-      
-      <!-- Liste des analyses du flux -->
-      <div class="panel-card">
-        <div class="panel-header">
-          <div class="panel-title">
-            <i data-feather="list" style="color: var(--accent-cyan); width: 16px;"></i>
-            Flux des Détections d'Analyse
+          <div class="kpi-card human">
+            <div class="kpi-top"><span class="kpi-label">Humains</span><span class="kpi-icon">👤</span></div>
+            <div class="kpi-val" id="kpi-humans" style="color:#34d399">0</div>
+            <div class="kpi-sub">Score &lt; 30 %</div>
           </div>
-          <span class="panel-badge" id="table-count">0 entrées</span>
-        </div>
-
-        <div class="table-container">
-          <table class="soc-table">
-            <thead>
-              <tr>
-                <th>Compte</th>
-                <th>ID Telegram</th>
-                <th>Score Auto</th>
-                <th>Danger</th>
-                <th>Date</th>
-                <th>Vérité</th>
-              </tr>
-            </thead>
-            <tbody id="analyses-table-body">
-              <!-- Rempli dynamiquement -->
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <!-- Inspecteur Détaillé du profil sélectionné -->
-      <div class="panel-card inspector-card">
-        <div class="panel-header">
-          <div class="panel-title">
-            <i data-feather="crosshair" style="color: var(--status-bot); width: 16px;"></i>
-            Inspecteur Profil & Signaux
+          <div class="kpi-card danger-card">
+            <div class="kpi-top"><span class="kpi-label">Messages Dangereux</span><span class="kpi-icon">🚨</span></div>
+            <div class="kpi-val" id="kpi-dangers" style="color:#fb923c">0</div>
+            <div class="kpi-sub">Bio / texte à risque</div>
           </div>
-          <span class="panel-badge" id="inspector-badge">Sélectionnez un compte</span>
-        </div>
-
-        <div id="inspector-container">
-          <div class="detail-empty">
-            <i data-feather="user-check" style="width: 48px; height: 48px; opacity: 0.3;"></i>
-            <p>Cliquez sur une ligne du tableau pour inspecter l'intégralité des signaux et qualifier le profil.</p>
+          <div class="kpi-card surv-card">
+            <div class="kpi-top"><span class="kpi-label">Sous Veille</span><span class="kpi-icon">👁️</span></div>
+            <div class="kpi-val" id="kpi-surv" style="color:#818cf8">0</div>
+            <div class="kpi-sub">Comptes surveillés</div>
           </div>
         </div>
-      </div>
 
-    </section>
+        <div class="charts-grid">
+          <div class="panel-card">
+            <div class="panel-header">
+              <span class="panel-title"><i data-feather="activity" style="color:var(--accent-cyan);width:15px;"></i> Chronologie</span>
+              <span class="panel-badge">50 dernières analyses</span>
+            </div>
+            <div class="chart-wrapper"><canvas id="timelineChart"></canvas></div>
+          </div>
+          <div class="panel-card">
+            <div class="panel-header">
+              <span class="panel-title"><i data-feather="pie-chart" style="color:var(--accent-purple);width:15px;"></i> Répartition</span>
+              <span class="panel-badge">Typologie</span>
+            </div>
+            <div class="chart-wrapper"><canvas id="distributionChart"></canvas></div>
+          </div>
+          <div class="panel-card">
+            <div class="panel-header">
+              <span class="panel-title"><i data-feather="target" style="color:#f59e0b;width:15px;"></i> Top Signaux</span>
+              <span class="panel-badge">Fréquence</span>
+            </div>
+            <div class="chart-wrapper"><canvas id="signalsChart"></canvas></div>
+          </div>
+        </div>
 
+        <!-- Mini-table + Inspector -->
+        <div class="feed-section">
+          <div class="panel-card">
+            <div class="panel-header">
+              <span class="panel-title"><i data-feather="zap" style="color:var(--accent-cyan);width:15px;"></i> Flux récent</span>
+              <span class="panel-badge" id="table-count">0 entrées</span>
+            </div>
+            <div class="table-container">
+              <table class="soc-table">
+                <thead>
+                  <tr>
+                    <th>Compte</th>
+                    <th>Auto</th>
+                    <th>Danger</th>
+                    <th>Date</th>
+                    <th>Vérité</th>
+                  </tr>
+                </thead>
+                <tbody id="analyses-table-body"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="panel-card inspector-card">
+            <div class="panel-header">
+              <span class="panel-title"><i data-feather="crosshair" style="color:#ef4444;width:15px;"></i> Inspecteur</span>
+              <span class="panel-badge" id="inspector-badge">Sélectionnez un compte</span>
+            </div>
+            <div id="inspector-container">
+              <div class="detail-empty">
+                <i data-feather="user-check" style="width:44px;height:44px;opacity:0.2;"></i>
+                <p>Cliquez sur une ligne pour inspecter les signaux.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </section>
+
+      <!-- ==================== PAGE : ANALYSES ==================== -->
+      <section class="page hidden" id="page-analyses">
+        <div class="panel-card">
+          <div class="panel-header">
+            <span class="panel-title"><i data-feather="list" style="color:var(--accent-cyan);width:15px;"></i> Toutes les analyses</span>
+            <div style="display:flex;gap:.75rem;align-items:center;">
+              <input class="search-input" id="search-analyses" type="text" placeholder="🔍 Rechercher...">
+              <span class="panel-badge" id="analyses-count-badge">0</span>
+            </div>
+          </div>
+          <div class="table-container">
+            <table class="soc-table">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Compte</th>
+                  <th>ID Telegram</th>
+                  <th>Automatisation</th>
+                  <th>Danger</th>
+                  <th>Date</th>
+                  <th>Vérité</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="all-analyses-body"></tbody>
+            </table>
+          </div>
+          <div class="pagination-bar">
+            <button class="btn-page" id="btn-prev" disabled>← Précédent</button>
+            <span id="page-info" style="color:var(--text-muted);font-size:.82rem;">Page 1</span>
+            <button class="btn-page" id="btn-next">Suivant →</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ==================== PAGE : SURVEILLANCES ==================== -->
+      <section class="page hidden" id="page-surveillances">
+        <div class="panel-card">
+          <div class="panel-header">
+            <span class="panel-title"><i data-feather="eye" style="color:var(--accent-cyan);width:15px;"></i> Comptes sous veille comportementale</span>
+            <span class="panel-badge" id="surv-count-badge">0</span>
+          </div>
+          <div class="table-container">
+            <table class="soc-table">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Pseudo</th>
+                  <th>ID Telegram</th>
+                  <th>Surveillance depuis</th>
+                </tr>
+              </thead>
+              <tbody id="surv-table-body"></tbody>
+            </table>
+          </div>
+          <div class="empty-surv hidden" id="surv-empty">
+            <i data-feather="eye-off" style="width:40px;height:40px;opacity:.2;"></i>
+            <p>Aucun compte sous veille. Utilisez <code>/veille @pseudo</code> dans Telegram.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ==================== PAGE : PARAMÈTRES ==================== -->
+      <section class="page hidden" id="page-parametres">
+        <div class="params-grid">
+
+          <!-- Seuils de scoring -->
+          <div class="panel-card">
+            <div class="panel-header">
+              <span class="panel-title"><i data-feather="sliders" style="color:var(--accent-cyan);width:15px;"></i> Seuils de Scoring</span>
+            </div>
+            <div class="params-list" id="params-scoring"></div>
+          </div>
+
+          <!-- Options système -->
+          <div class="panel-card">
+            <div class="panel-header">
+              <span class="panel-title"><i data-feather="toggle-right" style="color:var(--accent-purple);width:15px;"></i> Options Système</span>
+            </div>
+            <div class="params-list" id="params-system"></div>
+          </div>
+
+          <!-- Zone de danger RGPD -->
+          <div class="panel-card danger-zone">
+            <div class="panel-header">
+              <span class="panel-title"><i data-feather="alert-triangle" style="color:#ef4444;width:15px;"></i> Zone Sensible — RGPD</span>
+            </div>
+            <p style="color:var(--text-muted);font-size:.85rem;margin-bottom:1.25rem;line-height:1.6;">
+              Ces actions sont irréversibles. Elles permettent de respecter les droits à la suppression des données conformément au RGPD.
+            </p>
+            <div style="display:flex;gap:1rem;flex-wrap:wrap;">
+              <button class="btn-danger" id="btn-export-csv">
+                <i data-feather="download" style="width:14px;"></i> Exporter CSV
+              </button>
+              <button class="btn-danger" id="btn-clear-data" style="background:rgba(239,68,68,.15);border-color:rgba(239,68,68,.4);color:#f87171;">
+                <i data-feather="trash-2" style="width:14px;"></i> Purger toutes les analyses
+              </button>
+            </div>
+          </div>
+
+          <!-- À propos -->
+          <div class="panel-card">
+            <div class="panel-header">
+              <span class="panel-title"><i data-feather="info" style="color:var(--text-muted);width:15px;"></i> À propos</span>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:.75rem;font-size:.85rem;color:var(--text-muted);">
+              <div><span style="color:var(--text-main);font-weight:600;">Telegram Bot Sentinel</span> v2.1</div>
+              <div>Moteur de détection probabiliste de comptes Telegram automatisés (userbots IA).</div>
+              <div>Deux scores séparés : <strong style="color:var(--accent-cyan)">Automatisation</strong> et <strong style="color:#ef4444">Dangerosité</strong>.</div>
+              <div style="margin-top:.5rem;padding-top:.75rem;border-top:1px solid var(--border-subtle);">
+                Stack : Python 3.12 · Telethon · FastAPI · SQLite (WAL) · Chart.js
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </section>
+
+    </main>
   </div>
 
+  <!-- TOAST CONTAINER -->
   <div id="toast-container"></div>
 
+  <!-- CONFIRM MODAL -->
+  <div class="modal-overlay hidden" id="modal-overlay">
+    <div class="modal-box">
+      <div class="modal-icon"><i data-feather="alert-triangle" style="color:#ef4444;width:32px;height:32px;"></i></div>
+      <h3 id="modal-title">Confirmer l'action</h3>
+      <p id="modal-body">Êtes-vous sûr ?</p>
+      <div class="modal-actions">
+        <button class="btn-page" id="modal-cancel">Annuler</button>
+        <button class="btn-danger" id="modal-confirm">Confirmer</button>
+      </div>
+    </div>
+  </div>
+
   <script src="/static/app.js"></script>
-  <script>
-    feather.replace();
-  </script>
+  <script>feather.replace();</script>
 </body>
 </html>
