@@ -1,6 +1,6 @@
 # Fichiers d'environnement et clés
 .env
-
+.env.example
 # Sessions Telegram (ne jamais distribuer !)
 *.session
 *.session-journal

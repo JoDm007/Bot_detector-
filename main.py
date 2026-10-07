@@ -10,14 +10,168 @@ import csv
 import datetime
 import os
 import re
-from typing import Tuple
+import sqlite3
+import time
+from typing import Tuple, List, Optional
 
 import aiohttp
 from dotenv import load_dotenv
 from telethon import TelegramClient, events, functions, types
+from telethon.errors import FloodWait
 
 from defis import nouveau_defi
 from veille import SURVEILLES, autre_ecrit, moi_ecris, rapport as rapport_comportement
+
+# Configuration de la base de données SQLite
+DB_PATH = os.path.join("data", "analyses.db")
+
+
+def init_db() -> None:
+    """Initialise la base de données avec les tables nécessaires."""
+    os.makedirs("data", exist_ok=True)
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS analyses (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            chat_id INTEGER NOT NULL,
+            username TEXT,
+            first_name TEXT,
+            last_name TEXT,
+            score_automatisation INTEGER NOT NULL,
+            score_danger INTEGER NOT NULL,
+            signaux_automatisation TEXT NOT NULL,
+            signaux_danger TEXT NOT NULL,
+            date_analyse TEXT NOT NULL,
+            version_regles INTEGER DEFAULT 1
+        )
+    """)
+    
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS retours (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            analyse_id INTEGER NOT NULL,
+            verdict TEXT NOT NULL CHECK(verdict IN ('humain', 'bot', 'incertain')),
+            date_retour TEXT NOT NULL,
+            FOREIGN KEY (analyse_id) REFERENCES analyses(id)
+        )
+    """)
+    
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS surveillances (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            chat_id INTEGER UNIQUE NOT NULL,
+            pseudo TEXT,
+            date_debut TEXT NOT NULL
+        )
+    """)
+    
+    conn.commit()
+    conn.close()
+
+
+def sauvegarder_analyse(
+    chat_id: int,
+    username: Optional[str],
+    first_name: Optional[str],
+    last_name: Optional[str],
+    score_automatisation: int,
+    score_danger: int,
+    signaux_automatisation: List[str],
+    signaux_danger: List[str]
+) -> int:
+    """Sauvegarde une analyse dans la base de données et renvoie l'ID."""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+        INSERT INTO analyses 
+        (chat_id, username, first_name, last_name, score_automatisation, score_danger,
+         signaux_automatisation, signaux_danger, date_analyse)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        chat_id,
+        username,
+        first_name,
+        last_name,
+        score_automatisation,
+        score_danger,
+        str(signaux_automatisation),
+        str(signaux_danger),
+        datetime.datetime.now().isoformat()
+    ))
+    
+    analyse_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    return analyse_id
+
+
+def recuperer_analyse(analyse_id: int) -> Optional[dict]:
+    """Récupère une analyse par son ID."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    
+    cursor.execute("SELECT * FROM analyses WHERE id = ?", (analyse_id,))
+    row = cursor.fetchone()
+    conn.close()
+    
+    if row:
+        return {
+            "id": row["id"],
+            "chat_id": row["chat_id"],
+            "username": row["username"],
+            "first_name": row["first_name"],
+            "last_name": row["last_name"],
+            "score_automatisation": row["score_automatisation"],
+            "score_danger": row["score_danger"],
+            "signaux_automatisation": eval(row["signaux_automatisation"]),
+            "signaux_danger": eval(row["signaux_danger"]),
+            "date_analyse": row["date_analyse"],
+        }
+    return None
+
+
+def sauvegarder_retour(analyse_id: int, verdict: str) -> None:
+    """Enregistre le retour de l'utilisateur (humain/bot)."""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+        INSERT INTO retours (analyse_id, verdict, date_retour)
+        VALUES (?, ?, ?)
+    """, (analyse_id, verdict, datetime.datetime.now().isoformat()))
+    
+    conn.commit()
+    conn.close()
+
+
+def ajouter_surveillance(chat_id: int, pseudo: Optional[str]) -> None:
+    """Ajoute un chat à la liste des surveillés."""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+        INSERT OR IGNORE INTO surveillances (chat_id, pseudo, date_debut)
+        VALUES (?, ?, ?)
+    """, (chat_id, pseudo, datetime.datetime.now().isoformat()))
+    
+    conn.commit()
+    conn.close()
+
+
+def recuperer_surveilles() -> List[int]:
+    """Récupère la liste des IDs de chats surveillés."""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    cursor.execute("SELECT chat_id FROM surveillances")
+    rows = cursor.fetchall()
+    conn.close()
+    
+    return [row["chat_id"] for row in rows]
 
 # Chargement des variables d'environnement depuis le fichier .env
 load_dotenv()
@@ -62,15 +216,22 @@ def annee_estimee(user_id: int) -> int:
 
 
 async def cas_banni(user_id: int) -> bool:
-    """Interroge l'API du service Combot Anti-Spam (CAS)."""
+    """Interroge l'API du service Combot Anti-Spam (CAS) avec gestion d'erreurs."""
     try:
         async with aiohttp.ClientSession() as s:
             async with s.get(
                 f"https://api.cas.chat/check?user_id={user_id}",
                 timeout=aiohttp.ClientTimeout(total=8),
             ) as r:
+                # Gestion du taux limité (FloodWait)
+                if r.status == 429:
+                    return False  # On passe simplement si trop de requêtes
                 data = await r.json()
                 return bool(data.get("ok"))
+    except asyncio.TimeoutError:
+        return False
+    except aiohttp.ClientError:
+        return False
     except Exception:
         return False
 
@@ -201,8 +362,92 @@ async def cmd_analyser(event):
     ident = event.pattern_match.group(1)
     await event.respond(f"⏳ Analyse du compte `{ident}` en cours...")
     try:
-        rapport_txt = await analyser_compte(ident)
-        await event.respond(rapport_txt)
+        ent = await user_client.get_entity(ident)
+        
+        # Récupérer les métadonnées
+        full = await user_client(functions.users.GetFullUserRequest(ent))
+        bio = (full.full_user.about or "").strip()
+        communs = full.full_user.common_chats_count or 0
+        
+        # Calculer les scores
+        auto, raisons_auto = 0, []
+        danger, raisons_danger = score_texte_danger(bio)
+        
+        def ajouter(points: int, raison: str):
+            nonlocal auto
+            auto += points
+            prefix = f"+{points}" if points > 0 else str(points)
+            raisons_auto.append(f"{prefix} : {raison}")
+        
+        if getattr(ent, "scam", False) or getattr(ent, "fake", False):
+            ajouter(40, "Marqué SCAM/FAKE par Telegram")
+        if await cas_banni(ent.id):
+            ajouter(40, "Listé dans la base anti-spam Combot (CAS)")
+        if not ent.photo:
+            ajouter(15, "Aucune photo de profil")
+        if not bio:
+            ajouter(10, "Bio (description) vide")
+        if not ent.username:
+            ajouter(5, "Pas d'identifiant public (@pseudo)")
+        elif re.search(r"\d{4,}$", ent.username) or re.search(
+            r"[bcdfghjklmnpqrstvwxz]{6,}", ent.username, re.I
+        ):
+            ajouter(10, "Pseudo d'allure aléatoire (suite de chiffres ou consonnes)")
+        
+        annee = annee_estimee(ent.id)
+        if annee >= 2024:
+            ajouter(15, f"Compte récent (création estimée ~{annee})")
+        
+        if communs == 0:
+            ajouter(5, "Aucun groupe en commun avec vous")
+        if isinstance(ent.status, types.UserStatusEmpty):
+            ajouter(5, "Statut de présence : jamais vu en ligne")
+        if getattr(ent, "premium", False):
+            ajouter(-5, "Compte Telegram Premium")
+        if getattr(ent, "verified", False):
+            ajouter(-30, "Compte officiel vérifié")
+        
+        auto = max(0, min(auto, 100))
+        
+        # Sauvegarder dans la base de données
+        sauvegarder_analyse(
+            chat_id=ent.id,
+            username=ent.username,
+            first_name=ent.first_name,
+            last_name=ent.last_name,
+            score_automatisation=auto,
+            score_danger=danger,
+            signaux_automatisation=raisons_auto,
+            signaux_danger=raisons_danger
+        )
+        
+        # Générer le rapport
+        niveau = "ÉLEVÉ 🔴" if auto >= 60 else "MOYEN 🟠" if auto >= 30 else "FAIBLE 🟢"
+        nom_affich = f"{ent.first_name or ''} {ent.last_name or ''}".strip() or "Sans Nom"
+        pseudo_str = f" (@{ent.username})" if ent.username else ""
+        
+        rep = [
+            f"🔎 **Rapport d'analyse pour :** {nom_affich}{pseudo_str}",
+            f"🆔 **ID Telegram :** `{ent.id}` (Création estimée : ~{annee})",
+            f"📊 **Probabilité d'automatisation :** **{auto} %** ({niveau})",
+            "",
+            "📌 **Signaux de profil détectés :**",
+        ]
+        if raisons_auto:
+            rep.extend([f"  • {r}" for r in raisons_auto])
+        else:
+            rep.append("  • Aucun signal de risque particulier sur le profil.")
+        
+        if danger > 0:
+            rep.append(
+                f"\n⚠️ **Danger détecté dans la bio ({danger} %) :** {', '.join(raisons_danger)}"
+            )
+        
+        rep.append(
+            "\nℹ️ *Ce score est une estimation explicable et non une preuve absolue.*"
+        )
+        
+        await event.respond("\n".join(rep))
     except Exception as e:
         await event.respond(f"❌ Impossible d'analyser `{ident}` : {e}")
 
@@ -308,6 +553,10 @@ async def message_transfere(event):
 
 async def main():
     print("🚀 Démarrage des clients Telegram...")
+    # Initialiser la base de données au démarrage
+    init_db()
+    print("✅ Base de données SQLite initialisée")
+    
     await bot_client.start(bot_token=BOT_TOKEN)
     await user_client.start()
     print("✅ Bot et Userbot connectés avec succès. En attente de commandes...")
