@@ -1,0 +1,16 @@
+# Fichiers d'environnement et clés
+.env
+
+# Sessions Telegram (ne jamais distribuer !)
+*.session
+*.session-journal
+
+# Environnement virtuel & cache Python
+venv/
+BD_env/
+__pycache__/
+*.pyc
+
+# Données locales et retours utilisateurs
+data/*.csv
+!data/.gitkeep
