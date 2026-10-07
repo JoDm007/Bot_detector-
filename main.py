@@ -17,7 +17,7 @@ from typing import Tuple, List, Optional
 import aiohttp
 from dotenv import load_dotenv
 from telethon import TelegramClient, events, functions, types
-from telethon.errors import FloodWait
+from telethon.errors import FloodWaitError
 
 from defis import nouveau_defi
 from veille import SURVEILLES, autre_ecrit, moi_ecris, rapport as rapport_comportement
@@ -85,6 +85,7 @@ def sauvegarder_analyse(
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     
+    date_iso = datetime.datetime.now().isoformat()
     cursor.execute("""
         INSERT INTO analyses 
         (chat_id, username, first_name, last_name, score_automatisation, score_danger,
@@ -99,12 +100,33 @@ def sauvegarder_analyse(
         score_danger,
         str(signaux_automatisation),
         str(signaux_danger),
-        datetime.datetime.now().isoformat()
+        date_iso
     ))
     
     analyse_id = cursor.lastrowid
     conn.commit()
     conn.close()
+
+    # Si le serveur FastAPI est importé, notifier les clients WebSockets connectés
+    try:
+        from server import ws_manager
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            asyncio.create_task(ws_manager.broadcast({
+                "type": "new_analysis",
+                "data": {
+                    "id": analyse_id,
+                    "chat_id": chat_id,
+                    "username": username,
+                    "first_name": first_name,
+                    "score_automatisation": score_automatisation,
+                    "score_danger": score_danger,
+                    "date_analyse": date_iso
+                }
+            }))
+    except Exception:
+        pass
+
     return analyse_id
 
 
@@ -215,25 +237,35 @@ def annee_estimee(user_id: int) -> int:
     return annee
 
 
-async def cas_banni(user_id: int) -> bool:
+async def cas_banni(user_id: int, max_retries: int = 3) -> bool:
     """Interroge l'API du service Combot Anti-Spam (CAS) avec gestion d'erreurs."""
-    try:
-        async with aiohttp.ClientSession() as s:
-            async with s.get(
-                f"https://api.cas.chat/check?user_id={user_id}",
-                timeout=aiohttp.ClientTimeout(total=8),
-            ) as r:
-                # Gestion du taux limité (FloodWait)
-                if r.status == 429:
-                    return False  # On passe simplement si trop de requêtes
-                data = await r.json()
-                return bool(data.get("ok"))
-    except asyncio.TimeoutError:
-        return False
-    except aiohttp.ClientError:
-        return False
-    except Exception:
-        return False
+    for attempt in range(max_retries):
+        try:
+            async with aiohttp.ClientSession() as s:
+                async with s.get(
+                    f"https://api.cas.chat/check?user_id={user_id}",
+                    timeout=aiohttp.ClientTimeout(total=8),
+                ) as r:
+                    # Gestion du taux limité (FloodTooManyErrors)
+                    if r.status == 429:
+                        if attempt < max_retries - 1:
+                            await asyncio.sleep(1 * (2 ** attempt))  # retry exponentiel
+                            continue
+                        return False
+                    data = await r.json()
+                    return bool(data.get("ok"))
+        except asyncio.TimeoutError:
+            return False
+        except aiohttp.ClientError:
+            return False
+        except FloodWaitError as e:
+            if attempt < max_retries - 1:
+                await asyncio.sleep(e.seconds if hasattr(e, 'seconds') else 5)
+                continue
+            return False
+        except Exception:
+            return False
+    return False
 
 
 def score_texte_danger(texte: str) -> Tuple[int, list]:
@@ -551,11 +583,25 @@ async def message_transfere(event):
     await event.respond("\n".join(rep))
 
 
+def start_web_server():
+    """Démarre le serveur web FastAPI du dashboard en arrière-plan."""
+    import uvicorn
+    import threading
+    def _run():
+        uvicorn.run("server:app", host="127.0.0.1", port=8000, log_level="warning")
+    thread = threading.Thread(target=_run, daemon=True)
+    thread.start()
+    print("🌐 Dashboard SOC actif sur : http://127.0.0.1:8000")
+
+
 async def main():
     print("🚀 Démarrage des clients Telegram...")
     # Initialiser la base de données au démarrage
     init_db()
     print("✅ Base de données SQLite initialisée")
+
+    # Démarrer le serveur Web SOC Dashboard
+    start_web_server()
     
     await bot_client.start(bot_token=BOT_TOKEN)
     await user_client.start()

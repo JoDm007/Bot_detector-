@@ -34,20 +34,45 @@ Le système repose sur deux clients Telethon s'exécutant en parallèle :
 
 ```
 Bot_Detector/
-├── main.py              # Script principal (Bot + Userbot + Orchestration)
+├── main.py              # Script principal (Bot + Userbot + Intégration Dashboard)
+├── server.py            # Serveur API FastAPI + WebSockets (Flux temps réel)
+├── web/                 # Interface Web Cyber SOC Dashboard (Dark HUD)
+│   ├── index.html       # Tableau de bord avec KPI & inspecteur
+│   ├── index.css        # Design moderne, cyberpunk glassmorphism
+│   └── app.js           # Graphiques dynamiques Chart.js & synchronisation WebSocket
 ├── veille.py            # Module de télémétrie comportementale (délais & activité 24h/24)
 ├── defis.py             # Générateur de défis anti-bot interactifs
 ├── telegram_detector.py # Prototype initial / fonctions de base de scoring
-├── requirements.txt     # Dépendances Python (telethon, aiohttp, python-dotenv)
+├── requirements.txt     # Dépendances Python (telethon, fastapi, uvicorn, etc.)
 ├── .env.example         # Modèle de configuration des clés API
 ├── .gitignore           # Protection des clés et des sessions Telegram (.session)
 ├── data/
+│   ├── analyses.db      # Base SQLite (Analyses, Retours, Surveillances)
 │   └── retours.csv      # Historique des vérités terrain (humain / bot)
 └── docs/
     ├── Architecture.png
     ├── Cahier des charges _ détection de comptes Telegram automatisés.md
     └── GUIDE_MISE_EN_PLACE.md
 ```
+
+---
+
+## 🖥️ Plateforme & Dashboard SOC Temps Réel
+
+Une interface web interactive (Dark Mode Cyber SOC) est intégrée pour visualiser l'activité et le flux d'analyses :
+- **Adresse locale** : `http://127.0.0.1:8000`
+- **Flux en direct (WebSockets)** : Chaque analyse lancée via Telegram (`/analyser @pseudo`) ou par transfert de message apparaît instantanément sur l'écran.
+- **Graphiques interactifs (Chart.js)** :
+  1. *Chronologie du Flux & Dangerosité* : Courbes des scores d'automatisation et de danger.
+  2. *Typologie des Comptes* : Donut de répartition (Bots confirmés, Suspects, Humains).
+  3. *Top Signaux Détectés* : Fréquence des signaux relevés (absence de photo, bio vide, etc.).
+- **Inspecteur de Profil & Qualification** : Clic sur n'importe quel compte pour afficher ses métadonnées détaillées, ses signaux de danger, et qualifier le compte en un clic (*Valider Bot* / *Valider Humain*).
+
+Pour lancer le dashboard seul :
+```bash
+python -m uvicorn server:app --host 127.0.0.1 --port 8000
+```
+*(Lorsque vous lancez `python main.py`, le dashboard démarre automatiquement en parallèle).*
 
 ---
 

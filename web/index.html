@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Telegram Bot Sentinel - SOC Dashboard</title>
+  
+  <!-- Polices Google Font Inter & JetBrains Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  
+  <!-- Chart.js pour les graphiques interactifs -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  
+  <!-- Feather Icons pour les icônes vectorielles nettes -->
+  <script src="https://cdn.jsdelivr.net/npm/feather-icons/dist/feather.min.js"></script>
+
+  <link rel="stylesheet" href="/static/index.css">
+</head>
+<body>
+  <div class="app-container">
+    
+    <!-- HEADER -->
+    <header class="soc-header">
+      <div class="brand-section">
+        <div class="brand-logo-hud">
+          <div class="radar-ring"></div>
+          <i data-feather="shield" style="color: var(--accent-cyan); width: 22px; height: 22px;"></i>
+        </div>
+        <div class="brand-titles">
+          <h1>TELEGRAM BOT SENTINEL</h1>
+          <p>
+            <i data-feather="terminal" style="width: 14px; height: 14px;"></i>
+            Plateforme de Supervision & Détection Comportementale Temps Réel
+          </p>
+        </div>
+      </div>
+
+      <div class="header-status-group">
+        <div class="live-badge" id="live-indicator">
+          <span class="live-dot"></span>
+          <span id="live-text">FLUX EN DIRECT ACTIF</span>
+        </div>
+        <button class="refresh-btn" id="btn-refresh" title="Rafraîchir les données">
+          <i data-feather="rotate-cw" style="width: 14px; height: 14px;"></i>
+          <span>Actualiser</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- METRICS KPI -->
+    <section class="kpi-grid">
+      <div class="kpi-card total">
+        <div class="kpi-top">
+          <span class="kpi-label">Comptes Analysés</span>
+          <span class="kpi-icon">📊</span>
+        </div>
+        <div class="kpi-val" id="kpi-total">0</div>
+        <div class="kpi-sub">Total des analyses enregistrées</div>
+      </div>
+
+      <div class="kpi-card bot">
+        <div class="kpi-top">
+          <span class="kpi-label">Bots Confirmés</span>
+          <span class="kpi-icon">🤖</span>
+        </div>
+        <div class="kpi-val" id="kpi-bots" style="color: #f87171;">0</div>
+        <div class="kpi-sub">Score d'automatisation ≥ 60%</div>
+      </div>
+
+      <div class="kpi-card suspect">
+        <div class="kpi-top">
+          <span class="kpi-label">Profils Suspects</span>
+          <span class="kpi-icon">⚠️</span>
+        </div>
+        <div class="kpi-val" id="kpi-suspects" style="color: #fbbf24;">0</div>
+        <div class="kpi-sub">Score intermédiaire (30% - 59%)</div>
+      </div>
+
+      <div class="kpi-card human">
+        <div class="kpi-top">
+          <span class="kpi-label">Comptes Humains</span>
+          <span class="kpi-icon">👤</span>
+        </div>
+        <div class="kpi-val" id="kpi-humans" style="color: #34d399;">0</div>
+        <div class="kpi-sub">Score faible (< 30%)</div>
+      </div>
+    </section>
+
+    <!-- GRAPHIQUES INTERACTIFS -->
+    <section class="charts-grid">
+      <!-- Graphique 1 : Évolution temporelle des scores -->
+      <div class="panel-card">
+        <div class="panel-header">
+          <div class="panel-title">
+            <i data-feather="activity" style="color: var(--accent-cyan); width: 16px;"></i>
+            Chronologie du Flux & Dangerosité
+          </div>
+          <span class="panel-badge">Score Automatisation & Danger</span>
+        </div>
+        <div class="chart-wrapper">
+          <canvas id="timelineChart"></canvas>
+        </div>
+      </div>
+
+      <!-- Graphique 2 : Répartition Donut Bots vs Humains -->
+      <div class="panel-card">
+        <div class="panel-header">
+          <div class="panel-title">
+            <i data-feather="pie-chart" style="color: var(--accent-purple); width: 16px;"></i>
+            Typologie des Comptes
+          </div>
+          <span class="panel-badge">Répartition</span>
+        </div>
+        <div class="chart-wrapper">
+          <canvas id="distributionChart"></canvas>
+        </div>
+      </div>
+
+      <!-- Graphique 3 : Radar / Top Signaux observés -->
+      <div class="panel-card">
+        <div class="panel-header">
+          <div class="panel-title">
+            <i data-feather="target" style="color: var(--status-suspect); width: 16px;"></i>
+            Top Signaux Détectés
+          </div>
+          <span class="panel-badge">Fréquence</span>
+        </div>
+        <div class="chart-wrapper">
+          <canvas id="signalsChart"></canvas>
+        </div>
+      </div>
+    </section>
+
+    <!-- FLUX DÉTAILLÉ & INSPECTEUR LATÉRAL -->
+    <section class="feed-section">
+      
+      <!-- Liste des analyses du flux -->
+      <div class="panel-card">
+        <div class="panel-header">
+          <div class="panel-title">
+            <i data-feather="list" style="color: var(--accent-cyan); width: 16px;"></i>
+            Flux des Détections d'Analyse
+          </div>
+          <span class="panel-badge" id="table-count">0 entrées</span>
+        </div>
+
+        <div class="table-container">
+          <table class="soc-table">
+            <thead>
+              <tr>
+                <th>Compte</th>
+                <th>ID Telegram</th>
+                <th>Score Auto</th>
+                <th>Danger</th>
+                <th>Date</th>
+                <th>Vérité</th>
+              </tr>
+            </thead>
+            <tbody id="analyses-table-body">
+              <!-- Rempli dynamiquement -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Inspecteur Détaillé du profil sélectionné -->
+      <div class="panel-card inspector-card">
+        <div class="panel-header">
+          <div class="panel-title">
+            <i data-feather="crosshair" style="color: var(--status-bot); width: 16px;"></i>
+            Inspecteur Profil & Signaux
+          </div>
+          <span class="panel-badge" id="inspector-badge">Sélectionnez un compte</span>
+        </div>
+
+        <div id="inspector-container">
+          <div class="detail-empty">
+            <i data-feather="user-check" style="width: 48px; height: 48px; opacity: 0.3;"></i>
+            <p>Cliquez sur une ligne du tableau pour inspecter l'intégralité des signaux et qualifier le profil.</p>
+          </div>
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+
+  <div id="toast-container"></div>
+
+  <script src="/static/app.js"></script>
+  <script>
+    feather.replace();
+  </script>
+</body>
+</html>
