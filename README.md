@@ -143,6 +143,10 @@ TG_API_ID=1234567
 TG_API_HASH=abcdef1234567890abcdef1234567890
 TG_BOT_TOKEN=123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ
 TG_OWNER_ID=987654321
+
+# Optionnel : autres utilisateurs autorisés (IDs séparés par des virgules)
+# L'OWNER_ID est toujours autorisé, même absent de cette liste
+TG_ALLOWED_IDS=111222333,444555666
 ```
 
 ### 5. Lancement
@@ -168,6 +172,30 @@ Le dashboard SOC s'ouvre automatiquement sur un port libre à partir de `8000`.
 | `/rapport @pseudo` | Affiche le rapport comportemental (nécessite ≥ 5 échanges mesurés) |
 | `/defi` | Génère un défi anti-bot à transmettre à ton interlocuteur |
 | `/retour @pseudo humain\|bot` | Enregistre une vérité terrain dans `data/retours.csv` |
+| `/whoami` | Affiche votre ID Telegram et votre statut d'accès |
+| `/acces` | *(Propriétaire uniquement)* Liste tous les utilisateurs autorisés |
+
+---
+
+## 👥 Gestion des accès multi-utilisateurs
+
+Par défaut, seul le `TG_OWNER_ID` peut utiliser le bot. Pour autoriser d'autres utilisateurs :
+
+**1. Demandez à chaque utilisateur d'envoyer `/whoami` au bot** — le bot renverra son ID Telegram même sans accès.
+
+**2. Ajoutez les IDs dans le fichier `.env` :**
+
+```env
+TG_ALLOWED_IDS=123456789,987654321,555000111
+```
+
+**3. Redémarrez `main.py`** — les nouveaux accès sont actifs immédiatement.
+
+**4. Vérifiez avec `/acces`** (commande réservée au propriétaire) pour voir la liste complète.
+
+> **Note :** Tous les utilisateurs autorisés partagent le même `user_client` (le compte Telethon du propriétaire) et la même base de données SQLite. Les analyses de chacun sont visibles dans le dashboard commun.
+
+---
 
 ---
 

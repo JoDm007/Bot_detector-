@@ -231,6 +231,20 @@ API_HASH = os.environ["TG_API_HASH"]
 BOT_TOKEN = os.environ["TG_BOT_TOKEN"]
 OWNER_ID = int(os.environ["TG_OWNER_ID"])
 
+# Construction de la liste des utilisateurs autorisés.
+# L'OWNER_ID est toujours inclus, même si TG_ALLOWED_IDS est vide.
+def _charger_allowed_ids() -> set:
+    ids = {OWNER_ID}
+    raw = os.environ.get("TG_ALLOWED_IDS", "").strip()
+    if raw:
+        for part in raw.split(","):
+            part = part.strip()
+            if part.isdigit():
+                ids.add(int(part))
+    return ids
+
+ALLOWED_IDS: set = _charger_allowed_ids()
+
 bot_client = TelegramClient("session_bot", API_ID, API_HASH)
 user_client = TelegramClient("session_user", API_ID, API_HASH)
 
@@ -427,7 +441,8 @@ async def veille_handler(event):
 
 @bot_client.on(events.NewMessage(pattern=r"^/(start|help)"))
 async def start_handler(event):
-    if event.sender_id != OWNER_ID:
+    if event.sender_id not in ALLOWED_IDS:
+        await event.respond("⛔ Accès non autorisé. Contactez le propriétaire du bot pour obtenir l'accès.")
         return
     msg = (
         "🤖 **Détecteur de Comptes Automatisés Telegram**\n\n"
@@ -438,13 +453,44 @@ async def start_handler(event):
         "• `/rapport @pseudo` - Affiche le rapport comportemental du compte surveillé.\n"
         "• `/defi` - Génère une consigne ou défi anti-bot à transmettre.\n"
         "• `/retour @pseudo humain|bot` - Enregistre une vérité terrain (CSV).\n"
+        "• `/whoami` - Affiche votre ID Telegram.\n"
     )
     await event.respond(msg)
 
 
+@bot_client.on(events.NewMessage(pattern=r"^/whoami$"))
+async def cmd_whoami(event):
+    """Renvoie l'ID Telegram de l'appelant — utile pour l'onboarding de nouveaux utilisateurs."""
+    user_id = event.sender_id
+    statut = "👑 Propriétaire" if user_id == OWNER_ID else "✅ Utilisateur autorisé" if user_id in ALLOWED_IDS else "⛔ Non autorisé"
+    await event.respond(
+        f"ℹ️ **Votre ID Telegram :** `{user_id}`\n"
+        f"🔑 **Statut :** {statut}\n\n"
+        "Transmettez cet ID au propriétaire du bot pour obtenir l'accès."
+    )
+
+
+@bot_client.on(events.NewMessage(pattern=r"^/acces$"))
+async def cmd_acces(event):
+    """Affiche la liste des utilisateurs autorisés — réservé au propriétaire (OWNER_ID)."""
+    if event.sender_id != OWNER_ID:
+        await event.respond("⛔ Cette commande est réservée au propriétaire du bot.")
+        return
+    autres = ALLOWED_IDS - {OWNER_ID}
+    lignes = [f"👑 **Propriétaire :** `{OWNER_ID}`\n"]
+    if autres:
+        lignes.append(f"✅ **Utilisateurs autorisés ({len(autres)}) :**")
+        lignes.extend([f"  • `{uid}`" for uid in sorted(autres)])
+    else:
+        lignes.append("👤 Aucun autre utilisateur autorisé pour l'instant.\n"
+                      "Ajoutez des IDs dans `TG_ALLOWED_IDS` du fichier `.env` puis redémarrez.")
+    await event.respond("\n".join(lignes))
+
+
 @bot_client.on(events.NewMessage(pattern=r"^/analyser\s+(\S+)"))
 async def cmd_analyser(event):
-    if event.sender_id != OWNER_ID:
+    if event.sender_id not in ALLOWED_IDS:
+        await event.respond("⛔ Accès non autorisé.")
         return
     ident = event.pattern_match.group(1)
     await event.respond(f"⏳ Analyse de `{ident}` en cours...")
@@ -559,7 +605,8 @@ async def cmd_analyser(event):
 
 @bot_client.on(events.NewMessage(pattern=r"^/veille\s+(\S+)"))
 async def cmd_veille(event):
-    if event.sender_id != OWNER_ID:
+    if event.sender_id not in ALLOWED_IDS:
+        await event.respond("⛔ Accès non autorisé.")
         return
     ident = event.pattern_match.group(1)
     try:
@@ -575,7 +622,8 @@ async def cmd_veille(event):
 
 @bot_client.on(events.NewMessage(pattern=r"^/rapport\s+(\S+)"))
 async def cmd_rapport(event):
-    if event.sender_id != OWNER_ID:
+    if event.sender_id not in ALLOWED_IDS:
+        await event.respond("⛔ Accès non autorisé.")
         return
     ident = event.pattern_match.group(1)
     try:
@@ -595,7 +643,8 @@ async def cmd_rapport(event):
 
 @bot_client.on(events.NewMessage(pattern=r"^/defi"))
 async def cmd_defi(event):
-    if event.sender_id != OWNER_ID:
+    if event.sender_id not in ALLOWED_IDS:
+        await event.respond("⛔ Accès non autorisé.")
         return
     challenge = nouveau_defi()
     msg = (
@@ -610,7 +659,8 @@ async def cmd_defi(event):
 
 @bot_client.on(events.NewMessage(pattern=r"^/retour\s+(\S+)\s+(humain|bot)"))
 async def cmd_retour(event):
-    if event.sender_id != OWNER_ID:
+    if event.sender_id not in ALLOWED_IDS:
+        await event.respond("⛔ Accès non autorisé.")
         return
     pseudo = event.pattern_match.group(1)
     verdict = event.pattern_match.group(2).lower()
@@ -630,7 +680,7 @@ async def cmd_retour(event):
 
 @bot_client.on(events.NewMessage(func=lambda e: e.forward is not None))
 async def message_transfere(event):
-    if event.sender_id != OWNER_ID:
+    if event.sender_id not in ALLOWED_IDS:
         return
     text = event.raw_text or ""
     danger, raisons = score_texte_danger(text)
