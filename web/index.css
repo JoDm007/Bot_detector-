@@ -1,5 +1,5 @@
 /* ==========================================================================
-   TELEGRAM BOT SENTINEL — DARK SOC THEME v2.1
+   BOT SENTINEL MULTI-RÉSEAU — DARK SOC THEME v3.0
    ========================================================================== */
 
 :root {
@@ -20,6 +20,17 @@
   --status-suspect: #f59e0b;
   --status-human:   #10b981;
 
+  /* Couleurs réseau */
+  --net-telegram:       #229ED9;
+  --net-telegram-bg:    rgba(34,158,217,.14);
+  --net-telegram-border:rgba(34,158,217,.35);
+  --net-x:              #e7e9ea;
+  --net-x-bg:           rgba(231,233,234,.1);
+  --net-x-border:       rgba(231,233,234,.25);
+  --net-linkedin:       #0A66C2;
+  --net-linkedin-bg:    rgba(10,102,194,.18);
+  --net-linkedin-border:rgba(10,102,194,.4);
+
   --text-main:  #f1f5f9;
   --text-muted: #94a3b8;
   --text-dim:   #4b5a72;
@@ -30,7 +41,7 @@
   --radius-sm: 8px;
   --radius-md: 14px;
   --radius-lg: 20px;
-  --sidebar-w: 230px;
+  --sidebar-w: 240px;
   --topbar-h:  58px;
   --transition: all 0.22s cubic-bezier(.16,1,.3,1);
 }
@@ -696,3 +707,150 @@ body::before {
 .modal-actions { display:flex; gap:.75rem; margin-top:.75rem; width:100%; }
 .modal-actions .btn-page  { flex:1; }
 .modal-actions .btn-danger { flex:1; justify-content:center; }
+
+/* ==========================================================================
+   BADGES RÉSEAU (v3.0)
+   ========================================================================== */
+.net-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: .28rem;
+  padding: .18rem .55rem;
+  border-radius: 5px;
+  font-size: .68rem;
+  font-weight: 700;
+  letter-spacing: .03em;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.net-badge.telegram {
+  background: var(--net-telegram-bg);
+  color: var(--net-telegram);
+  border: 1px solid var(--net-telegram-border);
+}
+.net-badge.x {
+  background: var(--net-x-bg);
+  color: var(--net-x);
+  border: 1px solid var(--net-x-border);
+}
+.net-badge.linkedin {
+  background: var(--net-linkedin-bg);
+  color: #5aabff;
+  border: 1px solid var(--net-linkedin-border);
+}
+
+/* ==========================================================================
+   SÉLECTEUR DE RÉSEAU (topbar)
+   ========================================================================== */
+.network-selector {
+  display: flex;
+  align-items: center;
+  gap: .3rem;
+  background: rgba(255,255,255,.04);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: .22rem .35rem;
+}
+
+.net-btn {
+  display: flex;
+  align-items: center;
+  gap: .38rem;
+  padding: .32rem .7rem;
+  border-radius: 6px;
+  font-size: .75rem;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  transition: var(--transition);
+  white-space: nowrap;
+}
+.net-btn:hover { background: rgba(255,255,255,.06); color: var(--text-muted); }
+.net-btn.active { background: rgba(56,189,248,.12); color: var(--accent-cyan); }
+.net-btn.active.telegram { background:var(--net-telegram-bg); color:var(--net-telegram); }
+.net-btn.active.x        { background:var(--net-x-bg);        color:var(--net-x); }
+.net-btn.active.linkedin { background:var(--net-linkedin-bg);  color:#5aabff; }
+.net-btn .net-count {
+  font-size: .62rem;
+  font-family: var(--font-mono);
+  background: rgba(255,255,255,.08);
+  padding: .08rem .32rem;
+  border-radius: 9999px;
+}
+
+/* ==========================================================================
+   KPI RÉSEAU MINI-CARDS (dans Dashboard)
+   ========================================================================== */
+.kpi-network-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: .75rem;
+}
+
+.kpi-net-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: .9rem 1.1rem;
+  display: flex;
+  align-items: center;
+  gap: .85rem;
+  transition: var(--transition);
+  cursor: pointer;
+}
+.kpi-net-card:hover { transform: translateY(-2px); background: var(--bg-card-hover); }
+
+.kpi-net-card.telegram { border-left: 3px solid var(--net-telegram); }
+.kpi-net-card.x        { border-left: 3px solid #e7e9ea; }
+.kpi-net-card.linkedin { border-left: 3px solid var(--net-linkedin); }
+.kpi-net-card.selected { box-shadow: 0 0 0 1px rgba(56,189,248,.4); }
+
+.kpi-net-icon {
+  width: 36px; height: 36px;
+  border-radius: 9px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1.1rem;
+  flex-shrink: 0;
+}
+.kpi-net-card.telegram .kpi-net-icon { background: var(--net-telegram-bg); }
+.kpi-net-card.x        .kpi-net-icon { background: var(--net-x-bg); }
+.kpi-net-card.linkedin .kpi-net-icon { background: var(--net-linkedin-bg); }
+
+.kpi-net-info { flex: 1; min-width: 0; }
+.kpi-net-label { font-size: .72rem; color: var(--text-muted); font-weight: 600; }
+.kpi-net-val   { font-size: 1.4rem; font-weight: 800; font-family: var(--font-mono); line-height: 1.2; }
+.kpi-net-card.telegram .kpi-net-val { color: var(--net-telegram); }
+.kpi-net-card.x        .kpi-net-val { color: var(--net-x); }
+.kpi-net-card.linkedin .kpi-net-val { color: #5aabff; }
+
+/* ==========================================================================
+   BARRE DE FILTRE RÉSEAU (page Analyses)
+   ========================================================================== */
+.filter-bar {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  flex-wrap: wrap;
+}
+
+.filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: .35rem;
+  padding: .28rem .75rem;
+  border-radius: 9999px;
+  font-size: .74rem;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid var(--border-subtle);
+  background: transparent;
+  color: var(--text-muted);
+  transition: var(--transition);
+}
+.filter-chip:hover { border-color: rgba(255,255,255,.2); color: #fff; }
+.filter-chip.active { border-color: var(--accent-cyan); background: rgba(56,189,248,.1); color: var(--accent-cyan); }
+.filter-chip.active.telegram { border-color: var(--net-telegram); background: var(--net-telegram-bg); color: var(--net-telegram); }
+.filter-chip.active.x        { border-color: #e7e9ea; background: var(--net-x-bg); color: #e7e9ea; }
+.filter-chip.active.linkedin { border-color: #5aabff; background: var(--net-linkedin-bg); color: #5aabff; }

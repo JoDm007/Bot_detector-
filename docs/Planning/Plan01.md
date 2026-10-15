@@ -102,17 +102,23 @@ Internet
 
 ### Tâches
 
-- [ ] **3.1** Ajouter un champ `reseau` (TEXT) dans la table `analyses` de SQLite (`telegram`, `x`, `linkedin`)
-- [ ] **3.2** Créer `x_detector.py` — module d'analyse de comptes X :
+- [x] **3.1** Ajouter un champ `reseau` (TEXT) dans la table `analyses` de SQLite (`telegram`, `x`, `linkedin`)
+- [x] **3.2** Créer `x_detector.py` — module d'analyse de comptes X :
   - Âge du compte, ratio followers/following, fréquence de publication, présence de photo
-  - Utilisation de l'API X v2 (`tweepy`)
-- [ ] **3.3** Créer `linkedin_detector.py` — module d'analyse de comptes LinkedIn :
-  - Complétude du profil, ancienneté, connexions, activité
-  - Utilisation de l'API LinkedIn Marketing / People
-- [ ] **3.4** Ajouter les commandes bot `/analyser_x @pseudo` et `/analyser_linkedin URL`
-- [ ] **3.5** Adapter le dashboard web pour filtrer les analyses par réseau (`?reseau=x`)
-- [ ] **3.6** Harmoniser les scores (même échelle 0-100%) entre tous les réseaux
-- [ ] **3.7** Mettre à jour `.env.example` avec les nouvelles clés API
+  - API X v2 via `aiohttp` (Bearer Token — sans dépendance tweepy)
+- [x] **3.3** Créer `linkedin_detector.py` — module d'analyse de comptes LinkedIn :
+  - Analyse URL/slug (niveau 1, sans clé API) + prêt pour API officielle (niveau 2)
+- [x] **3.4** Ajouter les commandes bot `/analyser_x @pseudo` et `/analyser_linkedin URL`
+- [x] **3.5** Adapter le dashboard web pour filtrer les analyses par réseau (`?reseau=x`)
+- [x] **3.6** Harmoniser les scores (même échelle 0-100%) entre tous les réseaux
+- [x] **3.7** Mettre à jour `.env.example` avec les nouvelles clés API (X Bearer Token + LinkedIn)
+
+**Tâches supplémentaires réalisées :**
+- [x] **3.0** Ajouter `X_BEARER_TOKEN`, `X_API_KEY/SECRET`, `LINKEDIN_CLIENT_ID/SECRET` dans `.env` et `.env.example`
+- [x] **3.8** `server.py` v3.0 : endpoint `/api/reseaux`, `/api/stats?reseau=`, `/api/analyses?reseau=`, champ `reseau` dans toutes les réponses
+- [x] **3.9** Refonte UI v3.0 : sélecteur réseau topbar + sidebar, mini-cards réseau dashboard, filter-chips page Analyses, badges colorés par réseau dans toutes les tables et l'inspecteur
+
+> ✅ **Phase 3 complétée le 8 octobre 2026**
 
 ---
 
@@ -148,27 +154,28 @@ Internet
 
 ## Récapitulatif des priorités
 
-| Priorité | Phase | Impact | Effort |
-|---|---|---|---|
-| 🔴 Haute | Phase 1 — Multi-utilisateurs | Immédiat | Faible |
-| 🔴 Haute | Phase 2 — Déploiement VPS | Fondation pour tout le reste | Moyen |
-| 🟠 Moyenne | Phase 3 — X & LinkedIn | Valeur ajoutée forte | Moyen |
-| 🟡 Basse | Phase 4 — Meta (WhatsApp/Instagram/Facebook) | Vision long terme | Élevé |
+| Priorité | Phase | Statut | Impact | Effort |
+|---|---|---|---|---|
+| ✅ Fait | Phase 1 — Multi-utilisateurs | Complété | Immédiat | Faible |
+| ⏸️ Reporté | Phase 2 — Déploiement VPS | En attente | Fondation pour tout le reste | Moyen |
+| ✅ Fait | Phase 3 — X & LinkedIn | Complété | Valeur ajoutée forte | Moyen |
+| 🟡 Basse | Phase 4 — Meta (WhatsApp/Instagram/Facebook) | À venir | Vision long terme | Élevé |
 
 ---
 
-## Stack technique prévue
+## Stack technique actuelle (v3.0)
 
-| Couche | Technologie actuelle | Évolution |
+| Couche | Technologie | Statut |
 |---|---|---|
-| Bot Telegram | Telethon | Inchangé |
-| API REST | FastAPI | Inchangé |
-| Base de données | SQLite (WAL) | → PostgreSQL si trafic élevé |
-| Déploiement | Local | → VPS + systemd + Nginx |
-| Réseau X | — | Tweepy (API v2) |
-| Réseau LinkedIn | — | linkedin-api ou API officielle |
-| Réseau Meta | — | facebook-sdk / Graph API |
-| Sécurité accès | OWNER_ID unique | → Liste d'IDs + auth dashboard |
+| Bot Telegram | Telethon | ✅ En production |
+| API REST | FastAPI | ✅ En production |
+| Base de données | SQLite (WAL) | ✅ En production — → PostgreSQL si trafic élevé |
+| Déploiement | Local | ⏸️ Phase 2 à venir → VPS + systemd + Nginx |
+| Réseau X | aiohttp + API X v2 Bearer Token | ✅ Implémenté — clé à configurer |
+| Réseau LinkedIn | Analyse URL/slug (sans clé) | ✅ Implémenté niveau 1 — API officielle niveau 2 |
+| Réseau Meta | — | 🟡 Phase 4 — facebook-sdk / Graph API |
+| Accès multi-user | ALLOWED_IDS + DB `utilisateurs_autorises` | ✅ En production |
+| Dashboard UI | Chart.js + WebSocket | ✅ v3.0 multi-réseau |
 
 ---
 

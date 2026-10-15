@@ -5,7 +5,7 @@
 # Sessions Telegram (ne jamais distribuer !)
 *.session
 *.session-journal
-
+.env.example
 # Environnement virtuel & cache Python
 venv/
 BD_env/

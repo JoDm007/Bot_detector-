@@ -1,6 +1,7 @@
 """
-API REST et WebSockets pour le dashboard de détection de bots Telegram.
+API REST et WebSockets pour le dashboard de détection de bots Multi-Réseau.
 Expose les données de la base SQLite et permet la diffusion en temps réel.
+Réseaux supportés : telegram, x, linkedin
 """
 import ast
 import asyncio
@@ -19,9 +20,9 @@ from pydantic import BaseModel
 DB_PATH = os.path.join("data", "analyses.db")
 
 app = FastAPI(
-    title="Telegram Bot Sentinel - SOC Dashboard",
-    description="Plateforme de supervision et détection de bots Telegram",
-    version="2.1.0"
+    title="Bot Sentinel Multi-Réseau - SOC Dashboard",
+    description="Plateforme de supervision et détection de comptes automatisés (Telegram, X, LinkedIn)",
+    version="3.0.0"
 )
 
 app.add_middleware(
@@ -62,11 +63,15 @@ def ensure_tables():
             date_ajout TEXT NOT NULL
         )
     """)
-    # Migration : colonne demande_par dans analyses (si absente)
-    try:
-        conn.execute("ALTER TABLE analyses ADD COLUMN demande_par INTEGER")
-    except Exception:
-        pass
+    # Migrations : colonnes absentes dans analyses (upgrade depuis ancienne version)
+    for col, definition in [
+        ("demande_par", "INTEGER"),
+        ("reseau", "TEXT NOT NULL DEFAULT 'telegram'"),
+    ]:
+        try:
+            conn.execute(f"ALTER TABLE analyses ADD COLUMN {col} {definition}")
+        except Exception:
+            pass
     conn.commit()
     conn.close()
 
@@ -119,32 +124,56 @@ ws_manager = ConnectionManager()
 # Endpoints API
 # ---------------------------------------------------------------------------
 
+@app.get("/api/reseaux")
+def get_reseaux():
+    """Retourne la liste des réseaux disponibles avec leur nombre d'analyses."""
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT reseau, COUNT(*) as nb FROM analyses GROUP BY reseau ORDER BY nb DESC"
+    ).fetchall()
+    conn.close()
+    # Assure que les 3 réseaux connus sont toujours présents même à 0
+    known = {"telegram": 0, "x": 0, "linkedin": 0}
+    for r in rows:
+        known[r["reseau"]] = r["nb"]
+    return [
+        {"id": k, "label": {"telegram": "Telegram", "x": "X (Twitter)", "linkedin": "LinkedIn"}.get(k, k), "nb": v}
+        for k, v in known.items()
+    ]
+
+
 @app.get("/api/stats")
-def get_stats():
-    """Métriques globales pour les KPI cards et graphiques."""
+def get_stats(reseau: Optional[str] = None):
+    """Métriques globales pour les KPI cards et graphiques. Filtre par réseau si reseau= fourni."""
     conn = get_db()
     c = conn.cursor()
 
-    total_analyses = c.execute("SELECT COUNT(*) FROM analyses").fetchone()[0]
-    total_bots     = c.execute("SELECT COUNT(*) FROM analyses WHERE score_automatisation >= 60").fetchone()[0]
-    total_suspects = c.execute("SELECT COUNT(*) FROM analyses WHERE score_automatisation >= 30 AND score_automatisation < 60").fetchone()[0]
-    total_humains  = c.execute("SELECT COUNT(*) FROM analyses WHERE score_automatisation < 30").fetchone()[0]
-    total_dangers  = c.execute("SELECT COUNT(*) FROM analyses WHERE score_danger > 0").fetchone()[0]
+    # Clause WHERE optionnelle selon le réseau sélectionné
+    where = "WHERE reseau = ?" if reseau else ""
+    params = (reseau,) if reseau else ()
 
-    retours_bots      = c.execute("SELECT COUNT(*) FROM retours WHERE verdict = 'bot'").fetchone()[0]
-    retours_humains   = c.execute("SELECT COUNT(*) FROM retours WHERE verdict = 'humain'").fetchone()[0]
-    retours_incertains= c.execute("SELECT COUNT(*) FROM retours WHERE verdict = 'incertain'").fetchone()[0]
+    total_analyses = c.execute(f"SELECT COUNT(*) FROM analyses {where}", params).fetchone()[0]
+    total_bots     = c.execute(f"SELECT COUNT(*) FROM analyses {where + (' AND' if where else 'WHERE')} score_automatisation >= 60", params).fetchone()[0]
+    total_suspects = c.execute(f"SELECT COUNT(*) FROM analyses {where + (' AND' if where else 'WHERE')} score_automatisation >= 30 AND score_automatisation < 60", params).fetchone()[0]
+    total_humains  = c.execute(f"SELECT COUNT(*) FROM analyses {where + (' AND' if where else 'WHERE')} score_automatisation < 30", params).fetchone()[0]
+    total_dangers  = c.execute(f"SELECT COUNT(*) FROM analyses {where + (' AND' if where else 'WHERE')} score_danger > 0", params).fetchone()[0]
 
-    total_surveilles  = c.execute("SELECT COUNT(*) FROM surveillances").fetchone()[0]
+    retours_bots       = c.execute("SELECT COUNT(*) FROM retours WHERE verdict = 'bot'").fetchone()[0]
+    retours_humains    = c.execute("SELECT COUNT(*) FROM retours WHERE verdict = 'humain'").fetchone()[0]
+    retours_incertains = c.execute("SELECT COUNT(*) FROM retours WHERE verdict = 'incertain'").fetchone()[0]
 
-    avg_row = c.execute("SELECT AVG(score_automatisation), AVG(score_danger) FROM analyses").fetchone()
+    total_surveilles = c.execute("SELECT COUNT(*) FROM surveillances").fetchone()[0]
+
+    avg_row = c.execute(f"SELECT AVG(score_automatisation), AVG(score_danger) FROM analyses {where}", params).fetchone()
     avg_auto   = round(avg_row[0] or 0, 1)
     avg_danger = round(avg_row[1] or 0, 1)
 
-    rows_chrono = c.execute("""
-        SELECT id, username, first_name, score_automatisation, score_danger, date_analyse
-        FROM analyses ORDER BY id ASC LIMIT 50
-    """).fetchall()
+    rows_chrono = c.execute(f"""
+        SELECT id, username, first_name, score_automatisation, score_danger, date_analyse,
+               COALESCE(reseau, 'telegram') as reseau
+        FROM analyses {where}
+        ORDER BY id ASC LIMIT 50
+    """, params).fetchall()
 
     timeline = [
         {
@@ -153,11 +182,12 @@ def get_stats():
             "auto": r["score_automatisation"],
             "danger": r["score_danger"],
             "date": r["date_analyse"],
+            "reseau": r["reseau"],
         }
         for r in rows_chrono
     ]
 
-    all_rows = c.execute("SELECT signaux_automatisation FROM analyses").fetchall()
+    all_rows = c.execute(f"SELECT signaux_automatisation FROM analyses {where}", params).fetchall()
     signal_counts: dict = {}
     for r in all_rows:
         for s in parse_safe_list(r["signaux_automatisation"]):
@@ -168,6 +198,14 @@ def get_stats():
         [{"signal": k, "count": v} for k, v in signal_counts.items()],
         key=lambda x: x["count"], reverse=True
     )[:8]
+
+    # Ventilation par réseau (toujours globale, indépendante du filtre)
+    par_reseau_rows = c.execute(
+        "SELECT COALESCE(reseau,'telegram') as reseau, COUNT(*) as nb FROM analyses GROUP BY reseau"
+    ).fetchall()
+    par_reseau = {"telegram": 0, "x": 0, "linkedin": 0}
+    for r in par_reseau_rows:
+        par_reseau[r["reseau"]] = r["nb"]
 
     conn.close()
 
@@ -183,25 +221,37 @@ def get_stats():
         "verdicts": {"bot": retours_bots, "humain": retours_humains, "incertain": retours_incertains},
         "timeline": timeline,
         "top_signaux": top_signaux,
+        "par_reseau": par_reseau,
+        "filtre_reseau": reseau,
     }
 
 
 @app.get("/api/analyses")
-def get_analyses(limit: int = 50, offset: int = 0):
-    """Liste paginée des analyses."""
+def get_analyses(limit: int = 50, offset: int = 0, reseau: Optional[str] = None):
+    """Liste paginée des analyses, filtrable par réseau (reseau=telegram|x|linkedin)."""
     conn = get_db()
     c = conn.cursor()
-    rows = c.execute("""
-        SELECT a.*, r.verdict as retour_verdict
-        FROM analyses a
-        LEFT JOIN (SELECT analyse_id, verdict FROM retours ORDER BY id DESC) r ON a.id = r.analyse_id
-        ORDER BY a.id DESC LIMIT ? OFFSET ?
-    """, (limit, offset)).fetchall()
+    if reseau:
+        rows = c.execute("""
+            SELECT a.*, r.verdict as retour_verdict
+            FROM analyses a
+            LEFT JOIN (SELECT analyse_id, verdict FROM retours ORDER BY id DESC) r ON a.id = r.analyse_id
+            WHERE a.reseau = ?
+            ORDER BY a.id DESC LIMIT ? OFFSET ?
+        """, (reseau, limit, offset)).fetchall()
+    else:
+        rows = c.execute("""
+            SELECT a.*, r.verdict as retour_verdict
+            FROM analyses a
+            LEFT JOIN (SELECT analyse_id, verdict FROM retours ORDER BY id DESC) r ON a.id = r.analyse_id
+            ORDER BY a.id DESC LIMIT ? OFFSET ?
+        """, (limit, offset)).fetchall()
     conn.close()
 
     return [
         {
             "id": r["id"],
+            "reseau": r["reseau"] if "reseau" in r.keys() else "telegram",
             "chat_id": r["chat_id"],
             "username": r["username"],
             "first_name": r["first_name"],
@@ -226,7 +276,9 @@ def get_analyse_detail(analyse_id: int):
     if not row:
         raise HTTPException(status_code=404, detail="Analyse non trouvée")
     return {
-        "id": row["id"], "chat_id": row["chat_id"], "username": row["username"],
+        "id": row["id"],
+        "reseau": row["reseau"] if "reseau" in row.keys() else "telegram",
+        "chat_id": row["chat_id"], "username": row["username"],
         "first_name": row["first_name"], "last_name": row["last_name"],
         "score_automatisation": row["score_automatisation"],
         "score_danger": row["score_danger"],
@@ -412,6 +464,7 @@ def get_analyses_utilisateur(chat_id: int, limit: int = 50, offset: int = 0):
         "analyses": [
             {
                 "id": r["id"],
+                "reseau": r["reseau"] if "reseau" in r.keys() else "telegram",
                 "chat_id": r["chat_id"],
                 "username": r["username"],
                 "first_name": r["first_name"],

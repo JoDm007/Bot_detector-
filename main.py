@@ -21,6 +21,8 @@ from telethon.errors import FloodWaitError
 
 from defis import nouveau_defi
 from veille import SURVEILLES, autre_ecrit, moi_ecris, rapport as rapport_comportement
+from x_detector import analyser_compte_x
+from linkedin_detector import analyser_compte_linkedin
 
 # Configuration de la base de données SQLite
 DB_PATH = os.path.join("data", "analyses.db")
@@ -46,6 +48,7 @@ def init_db() -> None:
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS analyses (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            reseau TEXT NOT NULL DEFAULT 'telegram',
             chat_id INTEGER NOT NULL,
             username TEXT,
             first_name TEXT,
@@ -60,11 +63,15 @@ def init_db() -> None:
         )
     """)
 
-    # Migration : ajouter demande_par si absente (upgrade depuis ancienne version)
-    try:
-        cursor.execute("ALTER TABLE analyses ADD COLUMN demande_par INTEGER")
-    except Exception:
-        pass
+    # Migrations : ajouter les colonnes absentes (upgrade depuis ancienne version)
+    for col, definition in [
+        ("demande_par", "INTEGER"),
+        ("reseau", "TEXT NOT NULL DEFAULT 'telegram'"),
+    ]:
+        try:
+            cursor.execute(f"ALTER TABLE analyses ADD COLUMN {col} {definition}")
+        except Exception:
+            pass
 
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS retours (
@@ -130,6 +137,7 @@ def sauvegarder_analyse(
     signaux_automatisation: List[str],
     signaux_danger: List[str],
     demande_par: Optional[int] = None,
+    reseau: str = "telegram",
 ) -> int:
     """Sauvegarde une analyse dans la base de données et renvoie l'ID."""
     conn = get_db()
@@ -138,11 +146,11 @@ def sauvegarder_analyse(
     date_iso = datetime.datetime.now().isoformat()
     cursor.execute("""
         INSERT INTO analyses
-        (chat_id, username, first_name, last_name, score_automatisation, score_danger,
+        (reseau, chat_id, username, first_name, last_name, score_automatisation, score_danger,
          signaux_automatisation, signaux_danger, date_analyse, demande_par)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
-        chat_id, username, first_name, last_name,
+        reseau, chat_id, username, first_name, last_name,
         score_automatisation, score_danger,
         str(signaux_automatisation), str(signaux_danger), date_iso, demande_par
     ))
@@ -159,7 +167,7 @@ def sauvegarder_analyse(
             asyncio.create_task(ws_manager.broadcast({
                 "type": "new_analysis",
                 "data": {
-                    "id": analyse_id, "chat_id": chat_id, "username": username,
+                    "id": analyse_id, "reseau": reseau, "chat_id": chat_id, "username": username,
                     "first_name": first_name, "score_automatisation": score_automatisation,
                     "score_danger": score_danger, "date_analyse": date_iso,
                     "demande_par": demande_par
@@ -533,14 +541,19 @@ async def start_handler(event):
         return
     is_owner = event.sender_id == OWNER_ID
     msg = (
-        "🤖 **Détecteur de Comptes Automatisés Telegram**\n\n"
-        "**Commandes disponibles :**\n"
+        "🤖 **Détecteur de Comptes Automatisés — Multi-Réseau**\n\n"
+        "**📱 Telegram :**\n"
         "• `/analyser @pseudo` — Analyse le profil et calcule le score d'automatisation.\n"
         "• *(Transfert de message)* — Évalue la dangerosité du texte et l'expéditeur.\n"
         "• `/veille @pseudo` — Active la surveillance comportementale (temps de réponse).\n"
         "• `/rapport @pseudo` — Affiche le rapport comportemental du compte surveillé.\n"
         "• `/defi` — Génère une consigne ou défi anti-bot à transmettre.\n"
-        "• `/retour @pseudo humain|bot` — Enregistre une vérité terrain (CSV).\n"
+        "• `/retour @pseudo humain|bot` — Enregistre une vérité terrain (CSV).\n\n"
+        "**🐦 X (Twitter) :**\n"
+        "• `/analyser_x @username` — Analyse un compte X (Bearer Token requis).\n\n"
+        "**🔗 LinkedIn :**\n"
+        "• `/analyser_linkedin <url|slug>` — Analyse un profil LinkedIn.\n\n"
+        "**ℹ️ Utilitaires :**\n"
         "• `/whoami` — Affiche votre ID Telegram et votre statut d'accès.\n"
     )
     if is_owner:
@@ -754,6 +767,66 @@ async def cmd_analyser(event):
         await event.respond("\n".join(rep))
     except Exception as e:
         await event.respond(f"❌ Impossible d'analyser `{ident}` : {e}")
+
+
+@bot_client.on(events.NewMessage(pattern=r"^/analyser_x\s+(\S+)"))
+async def cmd_analyser_x(event):
+    """Analyse un compte X (Twitter) via l'API X v2."""
+    if event.sender_id not in ALLOWED_IDS:
+        await event.respond("⛔ Accès non autorisé.")
+        return
+    ident = event.pattern_match.group(1)
+    await event.respond(f"⏳ Analyse X de `{ident}` en cours...")
+    try:
+        resultat = await analyser_compte_x(ident)
+        if not resultat["ok"]:
+            await event.respond(f"❌ {resultat['erreur']}")
+            return
+        sauvegarder_analyse(
+            chat_id=resultat["chat_id"],
+            username=resultat["username"],
+            first_name=resultat["first_name"],
+            last_name=resultat["last_name"],
+            score_automatisation=resultat["score_automatisation"],
+            score_danger=resultat["score_danger"],
+            signaux_automatisation=resultat["signaux_automatisation"],
+            signaux_danger=resultat["signaux_danger"],
+            demande_par=event.sender_id,
+            reseau="x",
+        )
+        await event.respond(resultat["rapport_texte"])
+    except Exception as e:
+        await event.respond(f"❌ Erreur lors de l'analyse X de `{ident}` : {e}")
+
+
+@bot_client.on(events.NewMessage(pattern=r"^/analyser_linkedin\s+(\S+)"))
+async def cmd_analyser_linkedin(event):
+    """Analyse un profil LinkedIn via l'URL ou le slug."""
+    if event.sender_id not in ALLOWED_IDS:
+        await event.respond("⛔ Accès non autorisé.")
+        return
+    ident = event.pattern_match.group(1)
+    await event.respond(f"⏳ Analyse LinkedIn de `{ident}` en cours...")
+    try:
+        resultat = await analyser_compte_linkedin(ident)
+        if not resultat["ok"]:
+            await event.respond(f"❌ {resultat['erreur']}")
+            return
+        sauvegarder_analyse(
+            chat_id=resultat["chat_id"],
+            username=resultat["username"],
+            first_name=resultat["first_name"],
+            last_name=resultat["last_name"],
+            score_automatisation=resultat["score_automatisation"],
+            score_danger=resultat["score_danger"],
+            signaux_automatisation=resultat["signaux_automatisation"],
+            signaux_danger=resultat["signaux_danger"],
+            demande_par=event.sender_id,
+            reseau="linkedin",
+        )
+        await event.respond(resultat["rapport_texte"])
+    except Exception as e:
+        await event.respond(f"❌ Erreur lors de l'analyse LinkedIn de `{ident}` : {e}")
 
 
 @bot_client.on(events.NewMessage(pattern=r"^/veille\s+(\S+)"))

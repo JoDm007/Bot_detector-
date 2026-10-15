@@ -1,5 +1,5 @@
 /* ==========================================================================
-   TELEGRAM BOT SENTINEL — App Logic v2.1
+   BOT SENTINEL MULTI-RÉSEAU — App Logic v3.0
    ========================================================================== */
 
 let timelineChart = null;
@@ -10,11 +10,27 @@ let currentAnalyses = [];
 let selectedAnalyse = null;
 let ws = null;
 
+// Réseau actif (null = tous)
+let activeReseau = null;
+
 // Pagination
 let currentPage = 1;
 const PAGE_SIZE = 20;
 let allAnalysesCache = [];
 let filteredAnalyses = [];
+let analysesFilterReseau = null;
+
+// Helpers réseau
+const RESEAU_META = {
+  telegram: { label: "Telegram", icon: "✈️", cls: "telegram" },
+  x:        { label: "X",        icon: "𝕏",  cls: "x" },
+  linkedin: { label: "LinkedIn",  icon: "🔗", cls: "linkedin" },
+};
+
+function netBadgeHtml(reseau) {
+  const m = RESEAU_META[reseau] || { label: reseau, icon: "🌐", cls: "" };
+  return `<span class="net-badge ${m.cls}">${m.icon} ${m.label}</span>`;
+}
 
 // ============================================================
 // INIT
@@ -23,6 +39,8 @@ document.addEventListener("DOMContentLoaded", () => {
   initCharts();
   initNavigation();
   initSidebar();
+  initNetworkSelector();
+  initAnalysesFilters();
   loadDashboard();
   setupWebSocket();
 
@@ -33,10 +51,53 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 // ============================================================
+// SÉLECTEUR DE RÉSEAU (topbar + sidebar + mini-cards)
+// ============================================================
+function initNetworkSelector() {
+  // Topbar buttons
+  document.querySelectorAll("#topbar-network-selector .net-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const r = btn.dataset.reseau || null;
+      setNetworkFilter(r);
+    });
+  });
+  // Sidebar réseau links
+  document.querySelectorAll(".nav-item[data-reseau]").forEach(link => {
+    link.addEventListener("click", (e) => {
+      e.preventDefault();
+      const r = link.dataset.reseau || null;
+      setNetworkFilter(r);
+      navigateTo("dashboard");
+    });
+  });
+}
+
+function setNetworkFilter(reseau) {
+  activeReseau = reseau || null;
+
+  // Topbar buttons
+  document.querySelectorAll("#topbar-network-selector .net-btn").forEach(btn => {
+    const btnReseau = btn.dataset.reseau || null;
+    btn.classList.toggle("active", btnReseau === activeReseau);
+    // Retire/applique la classe de couleur réseau
+    Object.keys(RESEAU_META).forEach(r => btn.classList.remove(r));
+    if (activeReseau && btnReseau === activeReseau) btn.classList.add(activeReseau);
+  });
+
+  // Mini-cards réseau (dashboard)
+  document.querySelectorAll(".kpi-net-card").forEach(card => {
+    card.classList.toggle("selected", card.dataset.reseau === activeReseau);
+  });
+
+  // Recharge le dashboard avec le filtre
+  loadDashboard();
+}
+
+// ============================================================
 // NAVIGATION (SPA)
 // ============================================================
 function initNavigation() {
-  document.querySelectorAll(".nav-item[data-page]").forEach(link => {
+  document.querySelectorAll(".nav-item[data-page]:not([data-reseau])").forEach(link => {
     link.addEventListener("click", (e) => {
       e.preventDefault();
       navigateTo(link.dataset.page);
@@ -45,10 +106,10 @@ function initNavigation() {
 }
 
 function navigateTo(page) {
-  // Update nav items
-  document.querySelectorAll(".nav-item").forEach(n => n.classList.remove("active"));
-  const activeLink = document.querySelector(`.nav-item[data-page="${page}"]`);
-  if (activeLink) activeLink.classList.add("active");
+  // Update nav items (seulement les liens sans data-reseau)
+  document.querySelectorAll(".nav-item:not([data-reseau])").forEach(n => n.classList.remove("active"));
+  const activeLink = document.querySelector(`.nav-item[data-page="${page}"]:not([data-reseau])`);
+  if (activeLink) activeLink.classList.add("active");  if (activeLink) activeLink.classList.add("active");
 
   // Show/hide pages
   document.querySelectorAll(".page").forEach(p => p.classList.add("hidden"));
@@ -211,14 +272,16 @@ function initCharts() {
 // ============================================================
 async function loadDashboard() {
   try {
+    const reseauParam = activeReseau ? `?reseau=${activeReseau}` : "";
     const [statsRes, analysesRes] = await Promise.all([
-      fetch("/api/stats"),
-      fetch("/api/analyses?limit=30"),
+      fetch(`/api/stats${reseauParam}`),
+      fetch(`/api/analyses?limit=30${activeReseau ? "&reseau=" + activeReseau : ""}`),
     ]);
     if (!statsRes.ok || !analysesRes.ok) return;
 
     const stats    = await statsRes.json();
     const analyses = await analysesRes.json();
+    currentAnalyses = analyses;
 
     // KPIs
     animateCount("kpi-total",   stats.total_analyses);
@@ -231,6 +294,37 @@ async function loadDashboard() {
     // Nav badges
     document.getElementById("nav-badge-analyses").textContent = stats.total_analyses;
     document.getElementById("nav-badge-surv").textContent     = stats.total_surveilles;
+
+    // Mini-cards réseau + topbar counts + sidebar badges
+    if (stats.par_reseau) {
+      const tg = stats.par_reseau.telegram || 0;
+      const xc = stats.par_reseau.x || 0;
+      const li = stats.par_reseau.linkedin || 0;
+
+      animateCount("kpi-net-tg", tg);
+      animateCount("kpi-net-x",  xc);
+      animateCount("kpi-net-li", li);
+
+      // Topbar counts
+      const ntg = document.getElementById("net-count-tg");
+      const nx  = document.getElementById("net-count-x");
+      const nli = document.getElementById("net-count-li");
+      if (ntg) ntg.textContent = tg;
+      if (nx)  nx.textContent  = xc;
+      if (nli) nli.textContent = li;
+
+      // Sidebar badges
+      const stg = document.getElementById("nav-badge-tg");
+      const sx  = document.getElementById("nav-badge-x");
+      const sli = document.getElementById("nav-badge-li");
+      if (stg) stg.textContent = tg;
+      if (sx)  sx.textContent  = xc;
+      if (sli) sli.textContent = li;
+    }
+
+    // Titre topbar avec indication filtre réseau
+    const filtreLabel = activeReseau ? ` — ${RESEAU_META[activeReseau]?.label || activeReseau}` : "";
+    document.getElementById("topbar-title").textContent = `Dashboard${filtreLabel}`;
 
     // Charts
     const labels = stats.timeline.map(t => t.nom);
@@ -263,7 +357,7 @@ function renderMiniTable(analyses) {
   document.getElementById("table-count").textContent = `${analyses.length} entrées`;
 
   if (!analyses.length) {
-    tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;padding:2rem;color:var(--text-dim);">Aucune analyse enregistrée.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;padding:2rem;color:var(--text-dim);">Aucune analyse enregistrée.</td></tr>`;
     return;
   }
 
@@ -285,6 +379,7 @@ function renderMiniTable(analyses) {
           <div><div class="user-meta-name">${escHtml(nom)}</div><div class="user-meta-handle">${escHtml(hdl)}</div></div>
         </div>
       </td>
+      <td>${netBadgeHtml(a.reseau || "telegram")}</td>
       <td><span class="score-pill ${cls}">${icon} ${a.score_automatisation}%</span></td>
       <td style="font-family:var(--font-mono);font-weight:600;color:${a.score_danger > 0 ? "#ef4444" : "var(--text-dim)"};">${a.score_danger}%</td>
       <td style="color:var(--text-muted);font-size:.78rem;">${dateStr}</td>
@@ -326,7 +421,10 @@ function renderInspector(item) {
         <div>
           <div style="font-size:1rem;font-weight:700;color:#fff;">${escHtml(nom)}</div>
           <div style="color:var(--accent-cyan);font-family:var(--font-mono);font-size:.8rem;">${escHtml(handle)}</div>
-          <div style="color:var(--text-dim);font-size:.72rem;">ID : ${item.chat_id}</div>
+          <div style="display:flex;align-items:center;gap:.5rem;margin-top:.3rem;">
+            ${netBadgeHtml(item.reseau || "telegram")}
+            <span style="color:var(--text-dim);font-size:.72rem;">ID : ${item.chat_id}</span>
+          </div>
         </div>
       </div>
 
@@ -368,11 +466,9 @@ async function loadAllAnalyses() {
     const res = await fetch("/api/analyses?limit=500");
     if (!res.ok) return;
     allAnalysesCache = await res.json();
-    filteredAnalyses = [...allAnalysesCache];
-    currentPage = 1;
-    renderAllAnalysesTable();
-
-    document.getElementById("analyses-count-badge").textContent = `${allAnalysesCache.length} au total`;
+    const searchQ = document.getElementById("search-analyses")?.value || "";
+    applyAnalysesFilters(searchQ);
+    document.getElementById("analyses-count-badge").textContent = `${filteredAnalyses.length} sur ${allAnalysesCache.length}`;
   } catch (err) {
     console.error("loadAllAnalyses error:", err);
   }
@@ -388,7 +484,7 @@ function renderAllAnalysesTable() {
   document.getElementById("btn-next").disabled = start + PAGE_SIZE >= filteredAnalyses.length;
 
   if (!slice.length) {
-    tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;padding:2rem;color:var(--text-dim);">Aucune analyse trouvée.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="9" style="text-align:center;padding:2rem;color:var(--text-dim);">Aucune analyse trouvée.</td></tr>`;
     return;
   }
 
@@ -411,6 +507,7 @@ function renderAllAnalysesTable() {
           <div><div class="user-meta-name">${escHtml(nom)}</div><div class="user-meta-handle">${escHtml(hdl)}</div></div>
         </div>
       </td>
+      <td>${netBadgeHtml(a.reseau || "telegram")}</td>
       <td style="font-family:var(--font-mono);color:var(--text-dim);font-size:.75rem;">${a.chat_id}</td>
       <td><span class="score-pill ${cls}">${icon} ${a.score_automatisation}%</span></td>
       <td style="font-family:var(--font-mono);font-weight:600;color:${a.score_danger > 0 ? "#ef4444" : "var(--text-dim)"};">${a.score_danger}%</td>
@@ -435,18 +532,42 @@ function showInspectorFromAll(id) {
 document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("search-analyses")?.addEventListener("input", (e) => {
     const q = e.target.value.toLowerCase();
-    filteredAnalyses = allAnalysesCache.filter(a =>
-      (a.username || "").toLowerCase().includes(q) ||
-      (a.first_name || "").toLowerCase().includes(q) ||
-      String(a.chat_id).includes(q)
-    );
-    currentPage = 1;
-    renderAllAnalysesTable();
+    applyAnalysesFilters(q);
   });
 
   document.getElementById("btn-prev")?.addEventListener("click", () => { currentPage--; renderAllAnalysesTable(); });
   document.getElementById("btn-next")?.addEventListener("click", () => { currentPage++; renderAllAnalysesTable(); });
 });
+
+function initAnalysesFilters() {
+  document.querySelectorAll("#analyses-filter-bar .filter-chip").forEach(chip => {
+    chip.addEventListener("click", () => {
+      document.querySelectorAll("#analyses-filter-bar .filter-chip").forEach(c => {
+        c.classList.remove("active", "telegram", "x", "linkedin");
+      });
+      const r = chip.dataset.reseau || null;
+      analysesFilterReseau = r;
+      chip.classList.add("active");
+      if (r) chip.classList.add(r);
+      loadAllAnalyses();
+    });
+  });
+}
+
+function applyAnalysesFilters(searchQ) {
+  const q = (searchQ || "").toLowerCase();
+  filteredAnalyses = allAnalysesCache.filter(a => {
+    const matchSearch = !q ||
+      (a.username || "").toLowerCase().includes(q) ||
+      (a.first_name || "").toLowerCase().includes(q) ||
+      String(a.chat_id).includes(q);
+    const matchReseau = !analysesFilterReseau || (a.reseau || "telegram") === analysesFilterReseau;
+    return matchSearch && matchReseau;
+  });
+  currentPage = 1;
+  document.getElementById("analyses-count-badge").textContent = `${filteredAnalyses.length} sur ${allAnalysesCache.length}`;
+  renderAllAnalysesTable();
+}
 
 async function deleteAnalyse(id) {
   openModal(

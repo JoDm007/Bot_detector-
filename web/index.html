@@ -15,7 +15,6 @@
   <link rel="stylesheet" href="/static/index.css">
 </head>
 <body>
-
   <!-- SIDEBAR NAV -->
   <aside class="sidebar" id="sidebar">
     <div class="sidebar-brand">
@@ -25,7 +24,7 @@
       </div>
       <div class="sidebar-brand-text">
         <span class="sidebar-brand-name">BOT SENTINEL</span>
-        <span class="sidebar-brand-sub">v2.1 · SOC Dashboard</span>
+        <span class="sidebar-brand-sub">v3.0 · Multi-Réseau SOC</span>
       </div>
     </div>
 
@@ -44,6 +43,23 @@
         <i data-feather="eye"></i>
         <span>Surveillances</span>
         <span class="nav-badge" id="nav-badge-surv">0</span>
+      </a>
+
+      <span class="nav-section-label" style="margin-top:1.5rem;">Réseaux</span>
+      <a class="nav-item" data-page="dashboard" data-reseau="telegram" href="#telegram" id="nav-tg">
+        <span style="font-size:1rem;line-height:1;">✈️</span>
+        <span>Telegram</span>
+        <span class="nav-badge" id="nav-badge-tg" style="background:var(--net-telegram-bg);color:var(--net-telegram);">0</span>
+      </a>
+      <a class="nav-item" data-page="dashboard" data-reseau="x" href="#x" id="nav-x">
+        <span style="font-size:1rem;line-height:1;">𝕏</span>
+        <span>X (Twitter)</span>
+        <span class="nav-badge" id="nav-badge-x" style="background:var(--net-x-bg);color:var(--net-x);">0</span>
+      </a>
+      <a class="nav-item" data-page="dashboard" data-reseau="linkedin" href="#linkedin" id="nav-li">
+        <span style="font-size:1rem;line-height:1;">🔗</span>
+        <span>LinkedIn</span>
+        <span class="nav-badge" id="nav-badge-li" style="background:var(--net-linkedin-bg);color:#5aabff;">0</span>
       </a>
 
       <span class="nav-section-label" style="margin-top:1.5rem;">Système</span>
@@ -76,6 +92,21 @@
       </button>
       <div class="topbar-title" id="topbar-title">Dashboard</div>
       <div class="topbar-actions">
+        <!-- Sélecteur de réseau (topbar) -->
+        <div class="network-selector" id="topbar-network-selector">
+          <button class="net-btn active" data-reseau="" title="Tous les réseaux">
+            🌐 <span>Tous</span>
+          </button>
+          <button class="net-btn telegram" data-reseau="telegram" title="Telegram">
+            ✈️ <span class="net-count" id="net-count-tg">0</span>
+          </button>
+          <button class="net-btn x" data-reseau="x" title="X (Twitter)">
+            𝕏 <span class="net-count" id="net-count-x">0</span>
+          </button>
+          <button class="net-btn linkedin" data-reseau="linkedin" title="LinkedIn">
+            🔗 <span class="net-count" id="net-count-li">0</span>
+          </button>
+        </div>
         <button class="btn-icon" id="btn-refresh" title="Actualiser">
           <i data-feather="rotate-cw"></i>
         </button>
@@ -121,8 +152,32 @@
           </div>
         </div>
 
-        <div class="charts-grid">
-          <div class="panel-card">
+        <!-- Mini-cards réseau -->
+        <div class="kpi-network-grid" id="kpi-network-grid">
+          <div class="kpi-net-card telegram" data-reseau="telegram" title="Filtrer sur Telegram" onclick="setNetworkFilter('telegram')">
+            <div class="kpi-net-icon">✈️</div>
+            <div class="kpi-net-info">
+              <div class="kpi-net-label">Telegram</div>
+              <div class="kpi-net-val" id="kpi-net-tg">0</div>
+            </div>
+          </div>
+          <div class="kpi-net-card x" data-reseau="x" title="Filtrer sur X" onclick="setNetworkFilter('x')">
+            <div class="kpi-net-icon">𝕏</div>
+            <div class="kpi-net-info">
+              <div class="kpi-net-label">X (Twitter)</div>
+              <div class="kpi-net-val" id="kpi-net-x">0</div>
+            </div>
+          </div>
+          <div class="kpi-net-card linkedin" data-reseau="linkedin" title="Filtrer sur LinkedIn" onclick="setNetworkFilter('linkedin')">
+            <div class="kpi-net-icon">🔗</div>
+            <div class="kpi-net-info">
+              <div class="kpi-net-label">LinkedIn</div>
+              <div class="kpi-net-val" id="kpi-net-li">0</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="charts-grid">          <div class="panel-card">
             <div class="panel-header">
               <span class="panel-title"><i data-feather="activity" style="color:var(--accent-cyan);width:15px;"></i> Chronologie</span>
               <span class="panel-badge">50 dernières analyses</span>
@@ -157,6 +212,7 @@
                 <thead>
                   <tr>
                     <th>Compte</th>
+                    <th>Réseau</th>
                     <th>Auto</th>
                     <th>Danger</th>
                     <th>Date</th>
@@ -194,13 +250,21 @@
               <span class="panel-badge" id="analyses-count-badge">0</span>
             </div>
           </div>
+          <!-- Filtres réseau -->
+          <div class="filter-bar" id="analyses-filter-bar" style="margin-bottom:1rem;">
+            <button class="filter-chip active" data-reseau="">🌐 Tous</button>
+            <button class="filter-chip telegram" data-reseau="telegram">✈️ Telegram</button>
+            <button class="filter-chip x" data-reseau="x">𝕏 X (Twitter)</button>
+            <button class="filter-chip linkedin" data-reseau="linkedin">🔗 LinkedIn</button>
+          </div>
           <div class="table-container">
             <table class="soc-table">
               <thead>
                 <tr>
                   <th>#</th>
                   <th>Compte</th>
-                  <th>ID Telegram</th>
+                  <th>Réseau</th>
+                  <th>ID</th>
                   <th>Automatisation</th>
                   <th>Danger</th>
                   <th>Date</th>
@@ -324,11 +388,11 @@
               <span class="panel-title"><i data-feather="info" style="color:var(--text-muted);width:15px;"></i> À propos</span>
             </div>
             <div style="display:flex;flex-direction:column;gap:.75rem;font-size:.85rem;color:var(--text-muted);">
-              <div><span style="color:var(--text-main);font-weight:600;">Telegram Bot Sentinel</span> v2.1</div>
-              <div>Moteur de détection probabiliste de comptes Telegram automatisés (userbots IA).</div>
+              <div><span style="color:var(--text-main);font-weight:600;">Bot Sentinel Multi-Réseau</span> v3.0</div>
+              <div>Moteur de détection probabiliste de comptes automatisés sur Telegram, X (Twitter) et LinkedIn.</div>
               <div>Deux scores séparés : <strong style="color:var(--accent-cyan)">Automatisation</strong> et <strong style="color:#ef4444">Dangerosité</strong>.</div>
               <div style="margin-top:.5rem;padding-top:.75rem;border-top:1px solid var(--border-subtle);">
-                Stack : Python 3.12 · Telethon · FastAPI · SQLite (WAL) · Chart.js
+                Stack : Python 3.12 · Telethon · Tweepy · FastAPI · SQLite (WAL) · Chart.js
               </div>
             </div>
           </div>
