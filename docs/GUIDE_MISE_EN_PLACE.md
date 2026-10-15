@@ -1,3 +1,19 @@
+---
+{
+  "id": "file_0z0am8cx",
+  "filetype": "document",
+  "filename": "GUIDE_MISE_EN_PLACE",
+  "created_at": "2026-10-07T15:28:56.968Z",
+  "updated_at": "2026-10-07T15:28:56.968Z",
+  "meta": {
+    "location": "/",
+    "tags": [],
+    "categories": [],
+    "description": "",
+    "source": "markdown"
+  }
+}
+---
 # Guide de mise en place rapide : détecteur de comptes Telegram
 
 **Objectif** : avoir un système qui fonctionne en 2 à 3 jours, avec le minimum de fichiers et sans base de données lourde.

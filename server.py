@@ -45,6 +45,32 @@ def get_db() -> sqlite3.Connection:
     return conn
 
 
+# ---------------------------------------------------------------------------
+# Startup : s'assure que toutes les tables existent (migration auto)
+# ---------------------------------------------------------------------------
+@app.on_event("startup")
+def ensure_tables():
+    """Crée les tables manquantes au démarrage du serveur (idempotent)."""
+    os.makedirs("data", exist_ok=True)
+    conn = get_db()
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS utilisateurs_autorises (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            chat_id INTEGER UNIQUE NOT NULL,
+            pseudo TEXT,
+            role TEXT NOT NULL DEFAULT 'user',
+            date_ajout TEXT NOT NULL
+        )
+    """)
+    # Migration : colonne demande_par dans analyses (si absente)
+    try:
+        conn.execute("ALTER TABLE analyses ADD COLUMN demande_par INTEGER")
+    except Exception:
+        pass
+    conn.commit()
+    conn.close()
+
+
 def parse_safe_list(val: Any) -> list:
     if not val:
         return []
@@ -284,6 +310,123 @@ def delete_analyse(analyse_id: int):
     return {"status": "ok", "deleted": analyse_id}
 
 
+@app.get("/api/utilisateurs")
+def get_utilisateurs():
+    """Liste tous les utilisateurs autorisés."""
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT chat_id, pseudo, role, date_ajout FROM utilisateurs_autorises ORDER BY date_ajout ASC"
+    ).fetchall()
+    conn.close()
+    # Compter les analyses par utilisateur
+    result = []
+    for r in rows:
+        conn2 = get_db()
+        nb = conn2.execute(
+            "SELECT COUNT(*) FROM analyses WHERE demande_par = ?", (r["chat_id"],)
+        ).fetchone()[0]
+        conn2.close()
+        result.append({
+            "chat_id": r["chat_id"],
+            "pseudo": r["pseudo"],
+            "role": r["role"],
+            "date_ajout": r["date_ajout"],
+            "nb_analyses": nb,
+        })
+    return result
+
+
+class UtilisateurModel(BaseModel):
+    chat_id: int
+    pseudo: Optional[str] = None
+    role: str = "user"
+
+
+@app.post("/api/utilisateurs")
+async def add_utilisateur(data: UtilisateurModel):
+    """Ajoute un utilisateur autorisé."""
+    conn = get_db()
+    existing = conn.execute(
+        "SELECT chat_id FROM utilisateurs_autorises WHERE chat_id = ?", (data.chat_id,)
+    ).fetchone()
+    if existing:
+        conn.close()
+        raise HTTPException(status_code=409, detail="Utilisateur déjà autorisé")
+    import datetime as _dt
+    now = _dt.datetime.now().isoformat()
+    conn.execute(
+        "INSERT INTO utilisateurs_autorises (chat_id, pseudo, role, date_ajout) VALUES (?, ?, ?, ?)",
+        (data.chat_id, data.pseudo, data.role, now)
+    )
+    conn.commit()
+    conn.close()
+    await ws_manager.broadcast({"type": "user_added", "data": {"chat_id": data.chat_id, "pseudo": data.pseudo}})
+    return {"status": "ok", "chat_id": data.chat_id, "date_ajout": now}
+
+
+@app.delete("/api/utilisateurs/{chat_id}")
+async def remove_utilisateur(chat_id: int):
+    """Retire un utilisateur autorisé."""
+    conn = get_db()
+    row = conn.execute("SELECT chat_id FROM utilisateurs_autorises WHERE chat_id = ?", (chat_id,)).fetchone()
+    if not row:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Utilisateur introuvable")
+    conn.execute("DELETE FROM utilisateurs_autorises WHERE chat_id = ?", (chat_id,))
+    conn.commit()
+    conn.close()
+    await ws_manager.broadcast({"type": "user_removed", "data": {"chat_id": chat_id}})
+    return {"status": "ok", "deleted": chat_id}
+
+
+@app.get("/api/utilisateurs/{chat_id}/analyses")
+def get_analyses_utilisateur(chat_id: int, limit: int = 50, offset: int = 0):
+    """Retourne les analyses lancées par un utilisateur spécifique."""
+    conn = get_db()
+    # Vérifier que l'utilisateur existe
+    user = conn.execute(
+        "SELECT chat_id, pseudo, role, date_ajout FROM utilisateurs_autorises WHERE chat_id = ?", (chat_id,)
+    ).fetchone()
+    if not user:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Utilisateur introuvable")
+    rows = conn.execute("""
+        SELECT a.*, r.verdict as retour_verdict
+        FROM analyses a
+        LEFT JOIN (SELECT analyse_id, verdict FROM retours ORDER BY id DESC) r ON a.id = r.analyse_id
+        WHERE a.demande_par = ?
+        ORDER BY a.id DESC LIMIT ? OFFSET ?
+    """, (chat_id, limit, offset)).fetchall()
+    total = conn.execute(
+        "SELECT COUNT(*) FROM analyses WHERE demande_par = ?", (chat_id,)
+    ).fetchone()[0]
+    conn.close()
+    return {
+        "utilisateur": {
+            "chat_id": user["chat_id"],
+            "pseudo": user["pseudo"],
+            "role": user["role"],
+            "date_ajout": user["date_ajout"],
+        },
+        "total": total,
+        "analyses": [
+            {
+                "id": r["id"],
+                "chat_id": r["chat_id"],
+                "username": r["username"],
+                "first_name": r["first_name"],
+                "score_automatisation": r["score_automatisation"],
+                "score_danger": r["score_danger"],
+                "signaux_automatisation": parse_safe_list(r["signaux_automatisation"]),
+                "signaux_danger": parse_safe_list(r["signaux_danger"]),
+                "date_analyse": r["date_analyse"],
+                "retour_verdict": r["retour_verdict"],
+            }
+            for r in rows
+        ]
+    }
+
+
 # ---------------------------------------------------------------------------
 # WebSocket temps réel
 # ---------------------------------------------------------------------------
@@ -314,6 +457,7 @@ app.mount("/static", StaticFiles(directory=static_dir), name="static")
 @app.get("/analyses", response_class=HTMLResponse)
 @app.get("/surveillances", response_class=HTMLResponse)
 @app.get("/parametres", response_class=HTMLResponse)
+@app.get("/utilisateurs", response_class=HTMLResponse)
 def serve_spa():
     """Sert le SPA (Single Page App) pour toutes les routes front-end."""
     index_file = os.path.join(static_dir, "index.html")

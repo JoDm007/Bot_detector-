@@ -61,6 +61,7 @@ function navigateTo(page) {
     analyses: "Analyses",
     surveillances: "Surveillances",
     parametres: "Paramètres",
+    utilisateurs: "Utilisateurs",
   };
   document.getElementById("topbar-title").textContent = titles[page] || page;
 
@@ -70,6 +71,7 @@ function navigateTo(page) {
     case "analyses":     loadAllAnalyses(); break;
     case "surveillances":loadSurveillances(); break;
     case "parametres":   loadParametres(); break;
+    case "utilisateurs": loadUtilisateurs(); break;
   }
 }
 
@@ -518,6 +520,9 @@ async function loadParametres() {
     renderParamsGroup("params-scoring", params, SCORING_KEYS, false);
     renderParamsGroup("params-system",  params, TOGGLE_KEYS,  true);
 
+    // Charger la section gestion des accès
+    loadAcces();
+
   } catch (err) {
     console.error("loadParametres error:", err);
   }
@@ -674,6 +679,16 @@ function setupWebSocket() {
         if (active === "analyses")  loadAllAnalyses();
       } else if (msg.type === "feedback_added") {
         loadDashboard();
+      } else if (msg.type === "user_added") {
+        showToast(`✅ Accès accordé à ${msg.data.pseudo || msg.data.chat_id}`);
+        const active = document.querySelector(".nav-item.active")?.dataset.page;
+        if (active === "utilisateurs") loadUtilisateurs();
+        if (active === "parametres") loadAcces();
+      } else if (msg.type === "user_removed") {
+        showToast(`🚫 Accès retiré pour ${msg.data.chat_id}`);
+        const active = document.querySelector(".nav-item.active")?.dataset.page;
+        if (active === "utilisateurs") loadUtilisateurs();
+        if (active === "parametres") loadAcces();
       }
     } catch (_) {}
   };
@@ -758,3 +773,275 @@ function animateCount(id, target) {
     el.textContent = cur;
   }, 25);
 }
+
+// ============================================================
+// GESTION DES ACCÈS (Paramètres)
+// ============================================================
+async function loadAcces() {
+  try {
+    const res = await fetch("/api/utilisateurs");
+    if (!res.ok) return;
+    const users = await res.json();
+
+    const badge = document.getElementById("acces-count-badge");
+    const navBadge = document.getElementById("nav-badge-users");
+    if (badge) badge.textContent = `${users.length} utilisateur${users.length > 1 ? "s" : ""}`;
+    if (navBadge) navBadge.textContent = users.length;
+
+    const tbody = document.getElementById("acces-table-body");
+    const empty = document.getElementById("acces-empty");
+    if (!tbody) return;
+
+    if (!users.length) {
+      tbody.innerHTML = "";
+      if (empty) empty.classList.remove("hidden");
+      return;
+    }
+    if (empty) empty.classList.add("hidden");
+
+    tbody.innerHTML = users.map(u => `
+      <tr>
+        <td><code>${escHtml(String(u.chat_id))}</code></td>
+        <td>${u.pseudo ? "@" + escHtml(u.pseudo) : "<span style='color:var(--text-muted)'>-</span>"}</td>
+        <td><span class="score-badge" style="background:rgba(56,189,248,.12);color:#38bdf8;border:1px solid rgba(56,189,248,.2);padding:.2rem .6rem;border-radius:6px;font-size:.78rem;">${escHtml(u.role)}</span></td>
+        <td style="color:var(--text-muted);font-size:.82rem;">${u.date_ajout ? u.date_ajout.slice(0,10) : "-"}</td>
+        <td style="text-align:center;">${u.nb_analyses ?? 0}</td>
+        <td>
+          <button class="btn-icon" title="Retirer l'accès" onclick="retirerAcces(${u.chat_id}, this)" style="color:#ef4444;">
+            <i data-feather="user-minus" style="width:14px;"></i>
+          </button>
+        </td>
+      </tr>
+    `).join("");
+    feather.replace();
+  } catch (err) {
+    showToast("Erreur chargement accès", true);
+  }
+}
+
+async function ajouterAcces() {
+  const idInput = document.getElementById("acces-id-input");
+  const pseudoInput = document.getElementById("acces-pseudo-input");
+  const chatId = parseInt(idInput?.value);
+  if (!chatId || isNaN(chatId)) {
+    showToast("ID Telegram invalide", true);
+    return;
+  }
+  const pseudo = pseudoInput?.value.replace(/^@/, "").trim() || null;
+  try {
+    const res = await fetch("/api/utilisateurs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: chatId, pseudo }),
+    });
+    if (res.status === 409) {
+      showToast("Cet utilisateur est déjà autorisé", true);
+      return;
+    }
+    if (!res.ok) throw new Error();
+    if (idInput) idInput.value = "";
+    if (pseudoInput) pseudoInput.value = "";
+    showToast(`✅ Accès accordé à ${pseudo ? "@" + pseudo : chatId}`);
+    loadAcces();
+    loadUtilisateurs();
+  } catch {
+    showToast("Erreur lors de l'ajout", true);
+  }
+}
+
+async function retirerAcces(chatId, btn) {
+  openModal(
+    "Retirer l'accès",
+    `Êtes-vous sûr de vouloir retirer l'accès à l'utilisateur ${chatId} ?`,
+    async () => {
+      try {
+        const res = await fetch(`/api/utilisateurs/${chatId}`, { method: "DELETE" });
+        if (!res.ok) throw new Error();
+        showToast(`🚫 Accès retiré pour ${chatId}`);
+        loadAcces();
+        loadUtilisateurs();
+      } catch {
+        showToast("Erreur lors de la suppression", true);
+      }
+    }
+  );
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  document.getElementById("btn-acces-ajouter")?.addEventListener("click", ajouterAcces);
+  document.getElementById("acces-id-input")?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") ajouterAcces();
+  });
+});
+
+// ============================================================
+// PAGE UTILISATEURS
+// ============================================================
+let usersCache = [];
+
+async function loadUtilisateurs() {
+  try {
+    const res = await fetch("/api/utilisateurs");
+    if (!res.ok) return;
+    usersCache = await res.json();
+
+    const countBadge = document.getElementById("users-count-badge");
+    const navBadge = document.getElementById("nav-badge-users");
+    if (countBadge) countBadge.textContent = usersCache.length;
+    if (navBadge) navBadge.textContent = usersCache.length;
+
+    // KPI cards résumé
+    const totalAnalyses = usersCache.reduce((s, u) => s + (u.nb_analyses || 0), 0);
+    const kpiGrid = document.getElementById("users-kpi-grid");
+    if (kpiGrid) {
+      kpiGrid.innerHTML = `
+        <div class="kpi-card total">
+          <div class="kpi-top"><span class="kpi-label">Membres</span><span class="kpi-icon">👥</span></div>
+          <div class="kpi-val" style="color:var(--accent-cyan);">${usersCache.length}</div>
+          <div class="kpi-sub">Utilisateurs autorisés</div>
+        </div>
+        <div class="kpi-card bot">
+          <div class="kpi-top"><span class="kpi-label">Analyses totales</span><span class="kpi-icon">🔎</span></div>
+          <div class="kpi-val" style="color:#a855f7;">${totalAnalyses}</div>
+          <div class="kpi-sub">Par tous les membres</div>
+        </div>
+        <div class="kpi-card human">
+          <div class="kpi-top"><span class="kpi-label">Moyenne</span><span class="kpi-icon">📊</span></div>
+          <div class="kpi-val" style="color:#34d399;">${usersCache.length ? Math.round(totalAnalyses / usersCache.length) : 0}</div>
+          <div class="kpi-sub">Analyses / utilisateur</div>
+        </div>
+      `;
+    }
+
+    const tbody = document.getElementById("users-table-body");
+    if (!tbody) return;
+
+    if (!usersCache.length) {
+      tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:var(--text-muted);padding:2rem;">Aucun utilisateur autorisé pour l'instant.</td></tr>`;
+      return;
+    }
+
+    tbody.innerHTML = usersCache.map(u => `
+      <tr>
+        <td><code>${escHtml(String(u.chat_id))}</code></td>
+        <td>${u.pseudo ? "@" + escHtml(u.pseudo) : "<span style='color:var(--text-muted)'>-</span>"}</td>
+        <td><span style="background:rgba(56,189,248,.12);color:#38bdf8;border:1px solid rgba(56,189,248,.2);padding:.2rem .6rem;border-radius:6px;font-size:.78rem;">${escHtml(u.role)}</span></td>
+        <td style="color:var(--text-muted);font-size:.82rem;">${u.date_ajout ? u.date_ajout.slice(0,10) : "-"}</td>
+        <td style="text-align:center;">
+          <span style="background:rgba(168,85,247,.15);color:#a855f7;padding:.2rem .7rem;border-radius:6px;font-size:.82rem;font-weight:600;">
+            ${u.nb_analyses ?? 0} analyse${(u.nb_analyses ?? 0) > 1 ? "s" : ""}
+          </span>
+        </td>
+        <td>
+          <button class="btn-icon" onclick="openUserDetail(${u.chat_id})" title="Voir les analyses" style="color:var(--accent-cyan);">
+            <i data-feather="eye" style="width:14px;"></i>
+          </button>
+        </td>
+      </tr>
+    `).join("");
+    feather.replace();
+  } catch (err) {
+    showToast("Erreur chargement utilisateurs", true);
+  }
+}
+
+async function openUserDetail(chatId) {
+  // Masquer la liste, afficher le drawer
+  const listView = document.getElementById("user-list-view");
+  const detailView = document.getElementById("user-detail-view");
+  if (!listView || !detailView) return;
+
+  listView.classList.add("hidden");
+  detailView.classList.remove("hidden");
+
+  // Charger les analyses de cet utilisateur
+  try {
+    const res = await fetch(`/api/utilisateurs/${chatId}/analyses?limit=50`);
+    if (!res.ok) throw new Error();
+    const data = await res.json();
+    const u = data.utilisateur;
+    const analyses = data.analyses;
+
+    // Titre
+    const titleEl = document.getElementById("user-detail-title");
+    if (titleEl) {
+      titleEl.innerHTML = `<i data-feather="list" style="color:var(--accent-cyan);width:15px;"></i>
+        Analyses de ${u.pseudo ? "@" + escHtml(u.pseudo) : "l'utilisateur " + u.chat_id}`;
+    }
+    const countEl = document.getElementById("user-detail-count");
+    if (countEl) countEl.textContent = `${data.total} analyse${data.total > 1 ? "s" : ""}`;
+
+    // KPIs de l'utilisateur
+    const kpiEl = document.getElementById("user-detail-kpis");
+    const bots = analyses.filter(a => a.score_automatisation >= 60).length;
+    const suspects = analyses.filter(a => a.score_automatisation >= 30 && a.score_automatisation < 60).length;
+    const humains = analyses.filter(a => a.score_automatisation < 30).length;
+    const avgAuto = analyses.length ? Math.round(analyses.reduce((s, a) => s + a.score_automatisation, 0) / analyses.length) : 0;
+    if (kpiEl) {
+      kpiEl.innerHTML = `
+        <div class="kpi-card total">
+          <div class="kpi-top"><span class="kpi-label">Total analyses</span><span class="kpi-icon">🔎</span></div>
+          <div class="kpi-val" style="color:var(--accent-cyan);">${data.total}</div>
+          <div class="kpi-sub">Par ${u.pseudo ? "@" + escHtml(u.pseudo) : u.chat_id}</div>
+        </div>
+        <div class="kpi-card bot">
+          <div class="kpi-top"><span class="kpi-label">Bots détectés</span><span class="kpi-icon">🤖</span></div>
+          <div class="kpi-val" style="color:#f87171;">${bots}</div>
+          <div class="kpi-sub">Score ≥ 60%</div>
+        </div>
+        <div class="kpi-card suspect">
+          <div class="kpi-top"><span class="kpi-label">Suspects</span><span class="kpi-icon">⚠️</span></div>
+          <div class="kpi-val" style="color:#fbbf24;">${suspects}</div>
+          <div class="kpi-sub">Score 30–59%</div>
+        </div>
+        <div class="kpi-card human">
+          <div class="kpi-top"><span class="kpi-label">Humains</span><span class="kpi-icon">👤</span></div>
+          <div class="kpi-val" style="color:#34d399;">${humains}</div>
+          <div class="kpi-sub">Score < 30%</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-top"><span class="kpi-label">Score moyen</span><span class="kpi-icon">📊</span></div>
+          <div class="kpi-val" style="color:#a855f7;">${avgAuto}%</div>
+          <div class="kpi-sub">Automatisation moyenne</div>
+        </div>
+      `;
+    }
+
+    // Tableau des analyses
+    const tbody = document.getElementById("user-detail-body");
+    if (tbody) {
+      if (!analyses.length) {
+        tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:var(--text-muted);padding:2rem;">Aucune analyse enregistrée pour cet utilisateur.</td></tr>`;
+      } else {
+        tbody.innerHTML = analyses.map(a => {
+          const nom = a.username ? "@" + a.username : (a.first_name || "#" + a.chat_id);
+          const levelColor = a.score_automatisation >= 60 ? "#ef4444" : a.score_automatisation >= 30 ? "#f59e0b" : "#10b981";
+          const dangerColor = a.score_danger > 0 ? "#f87171" : "#34d399";
+          const verdictBadge = a.retour_verdict
+            ? `<span style="background:${a.retour_verdict==='bot'?'rgba(239,68,68,.15)':a.retour_verdict==='humain'?'rgba(16,185,129,.15)':'rgba(245,158,11,.15)'};color:${a.retour_verdict==='bot'?'#ef4444':a.retour_verdict==='humain'?'#10b981':'#f59e0b'};padding:.2rem .6rem;border-radius:6px;font-size:.78rem;">${a.retour_verdict.toUpperCase()}</span>`
+            : "<span style='color:var(--text-muted);font-size:.78rem;'>-</span>";
+          return `<tr>
+            <td style="color:var(--text-muted);">#${a.id}</td>
+            <td><span style="font-weight:500;">${escHtml(nom)}</span></td>
+            <td><span style="color:${levelColor};font-weight:600;font-size:.9rem;">${a.score_automatisation}%</span></td>
+            <td><span style="color:${dangerColor};font-weight:600;font-size:.9rem;">${a.score_danger}%</span></td>
+            <td style="color:var(--text-muted);font-size:.82rem;">${a.date_analyse ? a.date_analyse.slice(0,16).replace("T"," ") : "-"}</td>
+            <td>${verdictBadge}</td>
+          </tr>`;
+        }).join("");
+      }
+    }
+    feather.replace();
+  } catch (err) {
+    showToast("Erreur chargement des analyses de l'utilisateur", true);
+  }
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  document.getElementById("btn-back-users")?.addEventListener("click", () => {
+    document.getElementById("user-list-view")?.classList.remove("hidden");
+    document.getElementById("user-detail-view")?.classList.add("hidden");
+    feather.replace();
+  });
+});
+

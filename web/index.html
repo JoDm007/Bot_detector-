@@ -51,6 +51,11 @@
         <i data-feather="settings"></i>
         <span>Paramètres</span>
       </a>
+      <a class="nav-item" data-page="utilisateurs" href="#utilisateurs">
+        <i data-feather="users"></i>
+        <span>Utilisateurs</span>
+        <span class="nav-badge" id="nav-badge-users">0</span>
+      </a>
     </nav>
 
     <div class="sidebar-footer">
@@ -245,6 +250,40 @@
       <section class="page hidden" id="page-parametres">
         <div class="params-grid">
 
+          <!-- Gestion des accès -->
+          <div class="panel-card" id="panel-acces">
+            <div class="panel-header">
+              <span class="panel-title"><i data-feather="user-plus" style="color:var(--accent-cyan);width:15px;"></i> Gestion des accès</span>
+              <span class="panel-badge" id="acces-count-badge">0 utilisateurs</span>
+            </div>
+            <div style="display:flex;gap:.75rem;margin-bottom:1.25rem;flex-wrap:wrap;">
+              <input class="search-input" id="acces-id-input" type="number" placeholder="ID Telegram (ex: 123456789)" style="width:220px;">
+              <input class="search-input" id="acces-pseudo-input" type="text" placeholder="@pseudo (optionnel)" style="width:180px;">
+              <button class="btn-danger" id="btn-acces-ajouter" style="background:rgba(52,211,153,.15);border-color:rgba(52,211,153,.4);color:#34d399;">
+                <i data-feather="user-plus" style="width:14px;"></i> Accorder l'accès
+              </button>
+            </div>
+            <div class="table-container">
+              <table class="soc-table">
+                <thead>
+                  <tr>
+                    <th>ID Telegram</th>
+                    <th>Pseudo</th>
+                    <th>Rôle</th>
+                    <th>Ajouté le</th>
+                    <th>Analyses</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="acces-table-body"></tbody>
+              </table>
+            </div>
+            <div class="empty-surv hidden" id="acces-empty">
+              <i data-feather="user-x" style="width:40px;height:40px;opacity:.2;"></i>
+              <p>Aucun utilisateur autorisé. Ajoutez un ID Telegram ci-dessus.</p>
+            </div>
+          </div>
+
           <!-- Seuils de scoring -->
           <div class="panel-card">
             <div class="panel-header">
@@ -294,6 +333,63 @@
             </div>
           </div>
 
+        </div>
+      </section>
+
+      <!-- ==================== PAGE : UTILISATEURS ==================== -->
+      <section class="page hidden" id="page-utilisateurs">
+        <div id="user-list-view">
+          <div class="panel-card">
+            <div class="panel-header">
+              <span class="panel-title"><i data-feather="users" style="color:var(--accent-cyan);width:15px;"></i> Utilisateurs autorisés</span>
+              <span class="panel-badge" id="users-count-badge">0</span>
+            </div>
+            <div class="kpi-grid" id="users-kpi-grid" style="margin-bottom:1.5rem;"></div>
+            <div class="table-container">
+              <table class="soc-table">
+                <thead>
+                  <tr>
+                    <th>ID Telegram</th>
+                    <th>Pseudo</th>
+                    <th>Rôle</th>
+                    <th>Membre depuis</th>
+                    <th>Analyses réalisées</th>
+                    <th>Voir</th>
+                  </tr>
+                </thead>
+                <tbody id="users-table-body"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- Espace détaillé par utilisateur (drawer) -->
+        <div id="user-detail-view" class="hidden">
+          <button class="btn-page" id="btn-back-users" style="margin-bottom:1rem;display:flex;align-items:center;gap:.5rem;">
+            <i data-feather="arrow-left" style="width:14px;"></i> Retour
+          </button>
+          <div class="kpi-grid" id="user-detail-kpis" style="margin-bottom:1.5rem;"></div>
+          <div class="panel-card">
+            <div class="panel-header">
+              <span class="panel-title" id="user-detail-title"><i data-feather="list" style="color:var(--accent-cyan);width:15px;"></i> Analyses de l'utilisateur</span>
+              <span class="panel-badge" id="user-detail-count">0 analyses</span>
+            </div>
+            <div class="table-container">
+              <table class="soc-table">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>Compte analysé</th>
+                    <th>Automatisation</th>
+                    <th>Danger</th>
+                    <th>Date</th>
+                    <th>Vérité</th>
+                  </tr>
+                </thead>
+                <tbody id="user-detail-body"></tbody>
+              </table>
+            </div>
+          </div>
         </div>
       </section>
 

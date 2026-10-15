@@ -55,9 +55,16 @@ def init_db() -> None:
             signaux_automatisation TEXT NOT NULL,
             signaux_danger TEXT NOT NULL,
             date_analyse TEXT NOT NULL,
-            version_regles INTEGER DEFAULT 1
+            version_regles INTEGER DEFAULT 1,
+            demande_par INTEGER
         )
     """)
+
+    # Migration : ajouter demande_par si absente (upgrade depuis ancienne version)
+    try:
+        cursor.execute("ALTER TABLE analyses ADD COLUMN demande_par INTEGER")
+    except Exception:
+        pass
 
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS retours (
@@ -86,6 +93,16 @@ def init_db() -> None:
         )
     """)
 
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS utilisateurs_autorises (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            chat_id INTEGER UNIQUE NOT NULL,
+            pseudo TEXT,
+            role TEXT NOT NULL DEFAULT 'user',
+            date_ajout TEXT NOT NULL
+        )
+    """)
+
     # Paramètres par défaut
     defaults = [
         ("seuil_bot", "60", "Score minimum pour classer un compte comme bot (%)"),
@@ -111,7 +128,8 @@ def sauvegarder_analyse(
     score_automatisation: int,
     score_danger: int,
     signaux_automatisation: List[str],
-    signaux_danger: List[str]
+    signaux_danger: List[str],
+    demande_par: Optional[int] = None,
 ) -> int:
     """Sauvegarde une analyse dans la base de données et renvoie l'ID."""
     conn = get_db()
@@ -121,12 +139,12 @@ def sauvegarder_analyse(
     cursor.execute("""
         INSERT INTO analyses
         (chat_id, username, first_name, last_name, score_automatisation, score_danger,
-         signaux_automatisation, signaux_danger, date_analyse)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+         signaux_automatisation, signaux_danger, date_analyse, demande_par)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         chat_id, username, first_name, last_name,
         score_automatisation, score_danger,
-        str(signaux_automatisation), str(signaux_danger), date_iso
+        str(signaux_automatisation), str(signaux_danger), date_iso, demande_par
     ))
 
     analyse_id = cursor.lastrowid
@@ -143,7 +161,8 @@ def sauvegarder_analyse(
                 "data": {
                     "id": analyse_id, "chat_id": chat_id, "username": username,
                     "first_name": first_name, "score_automatisation": score_automatisation,
-                    "score_danger": score_danger, "date_analyse": date_iso
+                    "score_danger": score_danger, "date_analyse": date_iso,
+                    "demande_par": demande_par
                 }
             }))
     except Exception:
@@ -231,19 +250,87 @@ API_HASH = os.environ["TG_API_HASH"]
 BOT_TOKEN = os.environ["TG_BOT_TOKEN"]
 OWNER_ID = int(os.environ["TG_OWNER_ID"])
 
-# Construction de la liste des utilisateurs autorisés.
-# L'OWNER_ID est toujours inclus, même si TG_ALLOWED_IDS est vide.
-def _charger_allowed_ids() -> set:
+
+# ---------------------------------------------------------------------------
+# Gestion dynamique des utilisateurs autorisés (DB + .env legacy)
+# ---------------------------------------------------------------------------
+
+def get_allowed_ids() -> set:
+    """Retourne l'ensemble des IDs autorisés : owner + DB + .env legacy."""
     ids = {OWNER_ID}
+    # Compatibilité ascendante : IDs dans .env
     raw = os.environ.get("TG_ALLOWED_IDS", "").strip()
     if raw:
         for part in raw.split(","):
             part = part.strip()
             if part.isdigit():
                 ids.add(int(part))
+    # IDs gérés via la DB
+    try:
+        conn = get_db()
+        rows = conn.execute("SELECT chat_id FROM utilisateurs_autorises").fetchall()
+        conn.close()
+        for row in rows:
+            ids.add(row["chat_id"])
+    except Exception:
+        pass
     return ids
 
-ALLOWED_IDS: set = _charger_allowed_ids()
+
+def ajouter_utilisateur_db(chat_id: int, pseudo: Optional[str] = None, role: str = "user") -> bool:
+    """Ajoute un utilisateur autorisé en base. Retourne True si ajouté, False si déjà existant."""
+    conn = get_db()
+    try:
+        conn.execute(
+            "INSERT OR IGNORE INTO utilisateurs_autorises (chat_id, pseudo, role, date_ajout) VALUES (?, ?, ?, ?)",
+            (chat_id, pseudo, role, datetime.datetime.now().isoformat())
+        )
+        affected = conn.execute("SELECT changes()").fetchone()[0]
+        conn.commit()
+        return affected > 0
+    finally:
+        conn.close()
+
+
+def retirer_utilisateur_db(chat_id: int) -> bool:
+    """Retire un utilisateur autorisé de la base. Retourne True si supprimé."""
+    conn = get_db()
+    try:
+        conn.execute("DELETE FROM utilisateurs_autorises WHERE chat_id = ?", (chat_id,))
+        affected = conn.execute("SELECT changes()").fetchone()[0]
+        conn.commit()
+        return affected > 0
+    finally:
+        conn.close()
+
+
+def lister_utilisateurs_db() -> list:
+    """Retourne tous les utilisateurs autorisés enregistrés en base."""
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT chat_id, pseudo, role, date_ajout FROM utilisateurs_autorises ORDER BY date_ajout ASC"
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+# Compatibilité : ALLOWED_IDS reste disponible comme propriété dynamique
+class _AllowedIdsProxy:
+    """Proxy pour maintenir la compatibilité avec l'ancien code qui utilise ALLOWED_IDS."""
+    def __contains__(self, item):
+        return item in get_allowed_ids()
+
+    def __iter__(self):
+        return iter(get_allowed_ids())
+
+    def __len__(self):
+        return len(get_allowed_ids())
+
+    def __sub__(self, other):
+        return get_allowed_ids() - other
+
+
+ALLOWED_IDS = _AllowedIdsProxy()
 
 bot_client = TelegramClient("session_bot", API_ID, API_HASH)
 user_client = TelegramClient("session_user", API_ID, API_HASH)
@@ -444,17 +531,25 @@ async def start_handler(event):
     if event.sender_id not in ALLOWED_IDS:
         await event.respond("⛔ Accès non autorisé. Contactez le propriétaire du bot pour obtenir l'accès.")
         return
+    is_owner = event.sender_id == OWNER_ID
     msg = (
         "🤖 **Détecteur de Comptes Automatisés Telegram**\n\n"
         "**Commandes disponibles :**\n"
-        "• `/analyser @pseudo` - Analyse le profil et calcule le score d'automatisation.\n"
-        "• *(Transfert de message)* - Évalue la dangerosité du texte et l'expéditeur.\n"
-        "• `/veille @pseudo` - Active la surveillance comportementale (temps de réponse).\n"
-        "• `/rapport @pseudo` - Affiche le rapport comportemental du compte surveillé.\n"
-        "• `/defi` - Génère une consigne ou défi anti-bot à transmettre.\n"
-        "• `/retour @pseudo humain|bot` - Enregistre une vérité terrain (CSV).\n"
-        "• `/whoami` - Affiche votre ID Telegram.\n"
+        "• `/analyser @pseudo` — Analyse le profil et calcule le score d'automatisation.\n"
+        "• *(Transfert de message)* — Évalue la dangerosité du texte et l'expéditeur.\n"
+        "• `/veille @pseudo` — Active la surveillance comportementale (temps de réponse).\n"
+        "• `/rapport @pseudo` — Affiche le rapport comportemental du compte surveillé.\n"
+        "• `/defi` — Génère une consigne ou défi anti-bot à transmettre.\n"
+        "• `/retour @pseudo humain|bot` — Enregistre une vérité terrain (CSV).\n"
+        "• `/whoami` — Affiche votre ID Telegram et votre statut d'accès.\n"
     )
+    if is_owner:
+        msg += (
+            "\n👑 **Commandes propriétaire :**\n"
+            "• `/acces` — Liste les utilisateurs autorisés.\n"
+            "• `/acces_ajouter <id> [@pseudo]` — Accorde l'accès à un utilisateur.\n"
+            "• `/acces_retirer <id>` — Retire l'accès d'un utilisateur.\n"
+        )
     await event.respond(msg)
 
 
@@ -462,11 +557,17 @@ async def start_handler(event):
 async def cmd_whoami(event):
     """Renvoie l'ID Telegram de l'appelant — utile pour l'onboarding de nouveaux utilisateurs."""
     user_id = event.sender_id
-    statut = "👑 Propriétaire" if user_id == OWNER_ID else "✅ Utilisateur autorisé" if user_id in ALLOWED_IDS else "⛔ Non autorisé"
+    if user_id == OWNER_ID:
+        statut = "👑 Propriétaire"
+    elif user_id in ALLOWED_IDS:
+        statut = "✅ Utilisateur autorisé"
+    else:
+        statut = "⛔ Non autorisé"
     await event.respond(
         f"ℹ️ **Votre ID Telegram :** `{user_id}`\n"
         f"🔑 **Statut :** {statut}\n\n"
-        "Transmettez cet ID au propriétaire du bot pour obtenir l'accès."
+        "📌 Transmettez cet ID au propriétaire du bot pour obtenir l'accès.\n"
+        "Il peut vous ajouter via `/acces_ajouter <votre_id>` ou depuis le dashboard web (onglet Paramètres)."
     )
 
 
@@ -476,15 +577,66 @@ async def cmd_acces(event):
     if event.sender_id != OWNER_ID:
         await event.respond("⛔ Cette commande est réservée au propriétaire du bot.")
         return
-    autres = ALLOWED_IDS - {OWNER_ID}
+    db_users = lister_utilisateurs_db()
     lignes = [f"👑 **Propriétaire :** `{OWNER_ID}`\n"]
-    if autres:
-        lignes.append(f"✅ **Utilisateurs autorisés ({len(autres)}) :**")
-        lignes.extend([f"  • `{uid}`" for uid in sorted(autres)])
+    if db_users:
+        lignes.append(f"✅ **Utilisateurs autorisés ({len(db_users)}) :**")
+        for u in db_users:
+            pseudo_str = f" (@{u['pseudo']}" + ")" if u.get("pseudo") else ""
+            lignes.append(f"  • `{u['chat_id']}`{pseudo_str} — {u['role']} — ajouté le {u['date_ajout'][:10]}")
     else:
         lignes.append("👤 Aucun autre utilisateur autorisé pour l'instant.\n"
-                      "Ajoutez des IDs dans `TG_ALLOWED_IDS` du fichier `.env` puis redémarrez.")
+                      "• Via bot : `/acces_ajouter <telegram_id>`\n"
+                      "• Via dashboard : onglet Paramètres → Gestion des accès")
     await event.respond("\n".join(lignes))
+
+
+@bot_client.on(events.NewMessage(pattern=r"^/acces_ajouter\s+(\d+)(?:\s+(\S+))?"))
+async def cmd_acces_ajouter(event):
+    """Ajoute un utilisateur autorisé — réservé au propriétaire."""
+    if event.sender_id != OWNER_ID:
+        await event.respond("⛔ Cette commande est réservée au propriétaire du bot.")
+        return
+    target_id = int(event.pattern_match.group(1))
+    pseudo = event.pattern_match.group(2)  # optionnel
+    if target_id == OWNER_ID:
+        await event.respond("ℹ️ Vous êtes déjà propriétaire, inutile de vous ajouter.")
+        return
+    ajout = ajouter_utilisateur_db(target_id, pseudo)
+    if not ajout:
+        await event.respond(f"⚠️ L'utilisateur `{target_id}` est déjà autorisé.")
+        return
+    await event.respond(
+        f"✅ **Accès accordé** à `{target_id}`{' (@' + pseudo + ')' if pseudo else ''}.\n"
+        "Un message de confirmation lui a été envoyé."
+    )
+    # Notification automatique à l'utilisateur
+    try:
+        await bot_client.send_message(
+            target_id,
+            "🎉 **Accès accordé !**\n\n"
+            "Le propriétaire du bot vous a accordé l'accès à **Telegram Bot Sentinel**.\n"
+            "Tapez /start pour découvrir les commandes disponibles."
+        )
+    except Exception:
+        await event.respond("⚠️ Impossible d'envoyer la notification (l'utilisateur doit d'abord démarrer le bot).")
+
+
+@bot_client.on(events.NewMessage(pattern=r"^/acces_retirer\s+(\d+)"))
+async def cmd_acces_retirer(event):
+    """Retire l'accès d'un utilisateur — réservé au propriétaire."""
+    if event.sender_id != OWNER_ID:
+        await event.respond("⛔ Cette commande est réservée au propriétaire du bot.")
+        return
+    target_id = int(event.pattern_match.group(1))
+    if target_id == OWNER_ID:
+        await event.respond("⛔ Impossible de retirer l'accès au propriétaire.")
+        return
+    retire = retirer_utilisateur_db(target_id)
+    if retire:
+        await event.respond(f"🚫 Accès **retiré** pour l'utilisateur `{target_id}`.")
+    else:
+        await event.respond(f"⚠️ Utilisateur `{target_id}` introuvable dans la base d'accès.")
 
 
 @bot_client.on(events.NewMessage(pattern=r"^/analyser\s+(\S+)"))
@@ -574,7 +726,8 @@ async def cmd_analyser(event):
             score_automatisation=auto,
             score_danger=danger,
             signaux_automatisation=raisons_auto,
-            signaux_danger=raisons_danger
+            signaux_danger=raisons_danger,
+            demande_par=event.sender_id,
         )
 
         # Générer le rapport (format concis)
