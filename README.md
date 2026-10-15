@@ -1,6 +1,6 @@
-# 🤖 Telegram Bot Sentinel
+# 🤖 Bot Sentinel Multi-Réseau
 
-> **Système d'estimation probabiliste et explicable pour la détection de comptes Telegram automatisés (userbots IA) et dangereux.**
+> **Système d'estimation probabiliste et explicable pour la détection de comptes automatisés sur Telegram, X (Twitter) et LinkedIn.**
 
 [![Python](https://img.shields.io/badge/Python-3.9%2B-blue.svg)](https://www.python.org/)
 [![Telethon](https://img.shields.io/badge/Telethon-1.45%2B-orange.svg)](https://docs.telethon.dev/)
@@ -11,34 +11,36 @@
 
 ## 📌 Contexte & Problématique
 
-Les comptes Telegram automatisés par des agents IA (userbots) sont de plus en plus sophistiqués : réponses fluides et instantanées, imitation des comportements humains, intégration dans les conversations privées ou de groupe. Utilisés par des escrocs, ils servent à :
+Les comptes automatisés sur les réseaux sociaux (userbots IA) deviennent de plus en plus sophistiqués : réponses fluides et instantanées, imitation des comportements humains, intégration dans les conversations privées ou de groupe. Utilisés par des escrocs, ils servent à :
 
 - L'arnaque sentimentale (*romance scam*)
 - Le vol de données (SMS OTP, mots de passe, identifiants)
 - La promotion d'investissements frauduleux (crypto, forex, trading)
 - L'hameçonnage (phishing)
 
-Ces comptes **n'ont aucun marqueur officiel** (contrairement aux bots déclarés en `@..._bot`) et nient systématiquement être des bots.
-
-**Telegram Bot Sentinel** analyse les attributs publics, surveille la télémétrie comportementale du rythme de réponse, propose des défis anti-bot interactifs et évalue le niveau de dangerosité du texte pour produire une **estimation probabiliste explicable**.
+**Bot Sentinel** couvre actuellement 3 réseaux : Telegram, X (Twitter) et LinkedIn. Il analyse les attributs publics, surveille la télémétrie comportementale du rythme de réponse (Telegram), propose des défis anti-bot interactifs et évalue le niveau de dangerosité du texte pour produire une **estimation probabiliste explicable**.
 
 ---
 
 ## 🏗️ Architecture du système
 
-Le système repose sur **deux clients Telethon** s'exécutant en parallèle, plus un **dashboard web** :
+Le système repose sur :
 
 ```
-Toi (Telegram)  →  bot_client       →  commandes /analyser, /veille, /defi...
-                   user_client      →  requêtes API, lecture profils, mesure délais
-                   FastAPI/uvicorn  →  dashboard SOC web (http://127.0.0.1:8000)
+Toi (Telegram/X/LinkedIn)  →  bot_client        →  commandes /analyser, /analyser_x, /analyser_ld...
+                             user_client         →  requêtes API Telegram, mesure délais
+                             FastAPI/uvicorn     →  dashboard SOC web (http://127.0.0.1:8000)
+                             x_detector.py       →  requêtes API X (Bearer Token)
+                             linkedin_detector.py→  analyse URL/slug LinkedIn
 ```
 
-| Client | Rôle |
+| Composant | Rôle |
 |---|---|
 | `bot_client` | Interface Telegram : reçoit tes commandes, renvoie les rapports |
-| `user_client` | Collecteur : lit les profils publics, mesure les délais dans tes conversations |
+| `user_client` | Collecteur Telegram : lit les profils publics, mesure les délais dans tes conversations |
 | `server.py` | API REST + WebSocket : expose les données pour le dashboard web |
+| `x_detector.py` | Module X (Twitter) : analyse via API X v2 (Bearer Token requis) |
+| `linkedin_detector.py` | Module LinkedIn : analyse URL/slug (sans clé), prêt pour API officielle |
 
 ### Structure des fichiers
 
@@ -47,16 +49,18 @@ Bot_Detector/
 ├── main.py              # Script principal (bot + userbot + orchestration)
 ├── veille.py            # Télémétrie comportementale (délais & activité 24h/24)
 ├── defis.py             # Générateur de défis anti-bot
-├── server.py            # API FastAPI + dashboard SOC web
+├── server.py            # API FastAPI + dashboard SOC web (v3.0)
 ├── telegram_detector.py # Prototype initial (référence)
+├── x_detector.py        # Module d'analyse X (Twitter)
+├── linkedin_detector.py # Module d'analyse LinkedIn
 ├── requirements.txt     # Dépendances Python
-├── .env.example         # Modèle de configuration
+├── .env.example         # Modèle de configuration (v3.0)
 ├── .gitignore
 ├── data/
 │   ├── analyses.db      # Base SQLite (WAL mode) — analyses, retours, surveillances
 │   └── retours.csv      # Export CSV des verdicts terrain
 └── web/
-    ├── index.html       # SPA dashboard (4 pages)
+    ├── index.html       # SPA dashboard (multi-réseau v3.0)
     ├── index.css        # Thème dark SOC
     └── app.js           # Logique client + WebSocket temps réel
 ```
@@ -69,21 +73,22 @@ Le système génère **deux scores distincts de 0 à 100 %**.
 
 ### Score d'automatisation (0–100 %)
 
-| Famille | Signal | Impact |
-|---|---|---|
-| **Réputation** | Marqué `SCAM` ou `FAKE` par Telegram | +40 |
-| **Réputation** | Listé dans la base anti-spam CAS (Combot) | +40 |
-| **Profil** | Aucune photo de profil | +15 |
-| **Profil** | Bio vide | +10 |
-| **Profil** | Pseudo d'allure aléatoire (chiffres, consonnes) | +10 |
-| **Ancienneté** | Compte récent (création estimée ≥ 2024 via l'ID) | +15 |
-| **Réseau** | Aucun groupe en commun (`GetCommonChatsRequest`) | +5 |
-| **Présence** | Jamais vu en ligne | +5 |
-| **Comportement** | Réponses quasi instantanées (médiane < 5 s) | +20 |
-| **Comportement** | Régularité robotique des délais (écart-type < 3 s) | +25 |
-| **Comportement** | Activité quasi 24h/24 (≥ 20 heures/jour observées) | +15 |
-| **Atténuation** | Compte Telegram Premium | −5 |
-| **Atténuation** | Compte officiel vérifié | −30 |
+| Famille | Signal | Impact | Réseaux concernés |
+|---|---|---|---|
+| **Réputation** | Marqué `SCAM` ou `FAKE` par la plateforme | +40 | Telegram, X |
+| **Réputation** | Listé dans la base anti-spam CAS (Combot) | +40 | Telegram |
+| **Profil** | Aucune photo de profil | +15 | Telegram, X |
+| **Profil** | Bio vide | +10 | Telegram, X |
+| **Profil** | Pseudo d'allure aléatoire (chiffres, consonnes) | +10 | Telegram, X, LinkedIn |
+| **Ancienneté** | Compte récent (création estimée ≥ 2024) | +15 | Telegram, X |
+| ** Réseau** | Aucun groupe/abonné en commun | +5 | Telegram, X |
+| **Présence** | Jamais vu en ligne / activité 24h/24 anormale | +5 / +15 | Telegram, X |
+| **Comportement** | Réponses quasi instantanées (médiane < 5 s) | +20 | Telegram |
+| **Comportement** | Régularité robotique des délais (écart-type < 3 s) | +25 | Telegram |
+| **Comportement** | Activité quasi 24h/24 (≥ 20h/jour) | +15 | Telegram |
+| **Atténuation** | Compte vérifié (badge bleu/doré) | −25 à −30 | Telegram, X, LinkedIn |
+| **Ratio** | Follower/Following anormal | +10 à +20 | Telegram, X |
+| **Densité** | Publication très fréquente (>50 tweets/jour) | +12 à +25 | X uniquement |
 
 **Seuils** : < 30 % = faible 🟢 · 30–59 % = moyen 🟠 · ≥ 60 % = élevé 🔴
 
@@ -139,15 +144,26 @@ cp .env.example .env
 ```
 
 ```env
+# Telegram API & Bot
 TG_API_ID=1234567
 TG_API_HASH=abcdef1234567890abcdef1234567890
 TG_BOT_TOKEN=123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ
 TG_OWNER_ID=987654321
 
-# Optionnel : autres utilisateurs autorisés (IDs séparés par des virgules)
-# L'OWNER_ID est toujours autorisé, même absent de cette liste
+# Utilisateurs autorisés (optionnel)
 TG_ALLOWED_IDS=111222333,444555666
+
+# API X (Twitter) — obligatoire pour /analyser_x
+X_BEARER_TOKEN=<ton_Bearer_Token_from_developer.twitter.com>
+
+# API LinkedIn — optionnel (niveau 1 sans clé déjà fonctionnel)
+LINKEDIN_CLIENT_ID=
+LINKEDIN_CLIENT_SECRET=
 ```
+
+> **Note sur les clés API :**  
+> - X : Nécessite un Bearer Token (tier Free suffit pour les profils publics)  
+> - LinkedIn : Le niveau 1 (analyse URL/slug) fonctionne sans clé API — le niveau 2 (API officielle) est réservé aux futurs déploiements.
 
 ### 5. Lancement
 
@@ -166,7 +182,7 @@ Le dashboard SOC s'ouvre automatiquement sur un port libre à partir de `8000`.
 | Commande | Description |
 |---|---|
 | `/start` ou `/help` | Affiche l'aide |
-| `/analyser @pseudo` | Analyse le profil public + calcule les scores + sauvegarde en base |
+| `/analyser @pseudo` | Analyse un compte Telegram public + calcule les scores + sauvegarde en base |
 | *(Transfert d'un message)* | Score de danger du texte + analyse de l'expéditeur |
 | `/veille @pseudo` | Active la mesure des délais de réponse dans ta conversation Telegram |
 | `/rapport @pseudo` | Affiche le rapport comportemental (nécessite ≥ 5 échanges mesurés) |
@@ -174,6 +190,70 @@ Le dashboard SOC s'ouvre automatiquement sur un port libre à partir de `8000`.
 | `/retour @pseudo humain\|bot` | Enregistre une vérité terrain dans `data/retours.csv` |
 | `/whoami` | Affiche votre ID Telegram et votre statut d'accès |
 | `/acces` | *(Propriétaire uniquement)* Liste tous les utilisateurs autorisés |
+
+---
+
+## 💻 Commandes X (Twitter)
+
+| Commande | Description |
+|---|---|
+| `/analyser_x @username` | Analyse un compte X public (Bearer Token requis) |
+
+**Prérequis :**
+1. Crée une App sur [developer.twitter.com](https://developer.twitter.com) → *Apps*
+2. Génère un Bearer Token (OAuth 2.0 App-only) dans *Keys and tokens*
+3. Copie le Bearer Token et ajoute-le dans `.env` : `X_BEARER_TOKEN=xxxxxxx`
+4. Redémarre `main.py`
+
+**Score d'automatisation (0–100 %) sur X :**
+
+| Famille | Signal | Impact |
+|---|---|---|
+| **Ancienneté** | Compte très récent (< 90 jours) | +20 |
+| **Ancienneté** | Compte récent (< 1 an) | +10 |
+| **Ratio** | Follower/Following très faible (< 0.05) | +20 |
+| **Ratio** | Follower/Following faible (< 0.2) | +10 |
+| **Densité** | > 50 tweets/jour | +25 |
+| **Densité** | > 20 tweets/jour | +12 |
+| **Profil** | Aucun tweet publié | +10 |
+| **Profil** | Aucune photo de profil personnalisée | +15 |
+| **Profil** | Bio vide | +10 |
+| **Pseudo** | Suite de chiffres ≥ 5 en fin de pseudo | +20 |
+| **Pseudo** | Suite de chiffres ≥ 4 en fin de pseudo | +10 |
+| **Pseudo** | Suite de consonnes ≥ 7 (pseudo aléatoire) | +15 |
+| **Atténuation** | Compte vérifié (badge bleu/doré) | −25 |
+| **Atténuation** | Souvent ajouté à des listes (≥ 100) | −10 |
+
+> **Note :** X (Twitter) n'a pas de télémétrie comportementale (temps de réponse) comme Telegram — le score est basé uniquement sur les métadonnées du profil.
+
+---
+
+## 💻 Commandes LinkedIn
+
+| Commande | Description |
+|---|---|
+| `/analyser_ld <url|slug>` | Analyse un profil LinkedIn public (URL ou slug) |
+
+**Prérequis :** Aucun — le niveau 1 fonctionne sans clé API (analyse URL/slug uniquement).
+
+**Niveaux d'analyse :**
+
+| Niveau | Description | Clé API requise |
+|---|---|---|
+| **Niveau 1** | Analyse de l'URL/slug (longueur, chiffres, format) | ❌ Aucune |
+| **Niveau 2** | Analyse complète (connexions, activités, compétences) | ✅ LinkedIn Developer API |
+
+**Score d'automatisation (0–60 %) sur LinkedIn (niveau 1) :**
+
+| Famille | Signal | Impact |
+|---|---|---|
+| **Slug** | Suite de chiffres ≥ 6 en fin de slug | +20 |
+| **Slug** | Suite de chiffres ≥ 4 en fin de slug | +10 |
+| **Slug** | Consonnes consécutives ≥ 8 (pseudo aléatoire) | +15 |
+| **Slug** | Format par défaut LinkedIn non personnalisé | +15 |
+| **Slug** | Slug très court (< 4 caractères) | +5 |
+
+> **Important :** Sans clé API, le score est limité aux signaux de l'URL/slug. Le rapport affichera clairement cette limitation. Pour une analyse complète, configure `LINKEDIN_CLIENT_ID` et `LINKEDIN_CLIENT_SECRET` dans `.env`.
 
 ---
 
@@ -230,28 +310,38 @@ Un seul défi n'est pas concluant — il contribue au score comme les autres sig
 
 ---
 
-## 🌐 Dashboard SOC Web
+## 🌐 Dashboard SOC Web (v3.0)
 
 Accessible sur `http://127.0.0.1:8000` (port auto-détecté si 8000 est occupé).
 
 **Pages disponibles :**
 
-- **Dashboard** — KPI cards (total, bots, suspects, humains, dangers, surveillances), chronologie des scores, répartition, top signaux, inspecteur de profil
-- **Analyses** — tableau complet paginé avec recherche, suppression individuelle
+- **Dashboard** — KPI cards (total, bots, suspects, humains, dangers, surveillances), **mini-cards par réseau**, chronologie des scores, répartition, top signaux, inspecteur de profil
+- **Analyses** — tableau complet paginé avec **filtre par réseau**, recherche, suppression individuelle
 - **Surveillances** — liste des comptes sous veille comportementale
 - **Paramètres** — seuils de scoring configurables, activation/désactivation CAS, export CSV, purge RGPD
 
-**API REST disponible :**
+**Fonctionnalités v3.0 :**
+- Sélecteur de réseau en haut et dans la sidebar (Telegram / X / LinkedIn)
+- Filter chips pour filtrer les analyses par réseau dans la page Analyses
+- Mini-cards réseau dans le dashboard pour un aperçu rapide
+- Badge de réseau dans toutes les tables et l'inspecteur
+
+**API REST disponible (v3.0) :**
 
 | Endpoint | Méthode | Description |
 |---|---|---|
-| `/api/stats` | GET | Métriques globales |
-| `/api/analyses` | GET | Liste paginée des analyses |
+| `/api/stats` | GET | Métriques globales (avec `?reseau=` optionnel) |
+| `/api/reseaux` | GET | Liste des réseaux avec nombre d'analyses |
+| `/api/analyses` | GET | Liste paginée des analyses (avec `?reseau=` optionnel) |
 | `/api/analyses/{id}` | GET / DELETE | Détail ou suppression |
 | `/api/feedback` | POST | Enregistrer un verdict |
 | `/api/surveillances` | GET | Comptes sous veille |
 | `/api/parametres` | GET | Liste des paramètres |
 | `/api/parametres/{cle}` | PUT | Modifier un paramètre |
+| `/api/utilisateurs` | GET | Utilisateurs autorisés |
+| `/api/utilisateurs` | POST | Ajouter un utilisateur |
+| `/api/utilisateurs/{id}` | DELETE | Retirer un utilisateur |
 | `/ws` | WebSocket | Flux temps réel |
 
 ---
@@ -262,8 +352,10 @@ Accessible sur `http://127.0.0.1:8000` (port auto-détecté si 8000 est occupé)
 - **RGPD** — seules les métadonnées publiques des conversations auxquelles tu participes sont analysées. Le contenu des messages privés n'est pas stocké.
 - **Faux positifs** — un humain au profil vide ou récent peut être mal classé. Le rapport le signale systématiquement.
 - **Limites API** — le script respecte les délais Telegram (FloodWait) pour éviter le blocage du compte.
-- **Bots officiels** — les comptes dont le pseudo se termine par `bot` ou marqués `ent.bot` par l'API sont identifiés immédiatement comme bots officiels et exclus du scoring.
+- **Bots officiels** — identifiés immédiatement sur Telegram/X via `ent.bot` ou `bot` en fin de pseudo, et sur LinkedIn via le format d'URL par défaut.
 - **Sessions** — les fichiers `.env` et `*.session` contiennent tes clés et tokens d'accès. Ils sont exclus de Git via `.gitignore`.
+- **Clés API X** — sans `X_BEARER_TOKEN`, la commande `/analyser_x` affichera un message d'erreur. Le tier Free de X suffit pour les profils publics.
+- **LinkedIn niveau 1** — sans clé API, l'analyse est limitée aux signaux de l'URL/slug (longueur, chiffres, format). Le rapport le signale clairement.
 
 ---
 
@@ -271,6 +363,7 @@ Accessible sur `http://127.0.0.1:8000` (port auto-détecté si 8000 est occupé)
 
 - [Cahier des charges complet](docs/Cahier%20des%20charges%20_%20d%C3%A9tection%20de%20comptes%20Telegram%20automatis%C3%A9s.md)
 - [Guide de mise en place rapide](docs/GUIDE_MISE_EN_PLACE.md)
+- [Plan de marche v3.0 — Multi-réseau](docs/Planning/Plan01.md)
 
 ---
 

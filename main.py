@@ -498,11 +498,11 @@ async def analyser_compte(ident) -> str:
     pseudo_str = f" (@{ent.username})" if ent.username else ""
 
     rep = [
-        f"🔎 **Rapport d'analyse pour :** {nom_affich}{pseudo_str}",
-        f"🆔 **ID Telegram :** `{ent.id}` (Création estimée : ~{annee})",
-        f"📊 **Probabilité d'automatisation :** **{auto} %** ({niveau})",
+        f"🔎 Rapport d'analyse pour : {nom_affich}{pseudo_str}",
+        f"🆔 ID Telegram : {ent.id} (Création estimée : ~{annee})",
+        f"📊 Probabilité d'automatisation : {auto} % ({niveau})",
         "",
-        "📌 **Signaux de profil détectés :**",
+        "📌 Signaux de profil détectés :",
     ]
     if raisons:
         rep.extend([f"  • {r}" for r in raisons])
@@ -511,11 +511,11 @@ async def analyser_compte(ident) -> str:
 
     if danger > 0:
         rep.append(
-            f"\n⚠️ **Danger détecté dans la bio ({danger} %) :** {', '.join(raisons_danger)}"
+            f"\n⚠️ Danger détecté dans la bio ({danger} %) : {', '.join(raisons_danger)}"
         )
 
     rep.append(
-        "\nℹ️ *Ce score est une estimation explicable et non une preuve absolue.*"
+        "\nℹ️ Ce score est une estimation explicable et non une preuve absolue."
     )
     return "\n".join(rep)
 
@@ -541,27 +541,27 @@ async def start_handler(event):
         return
     is_owner = event.sender_id == OWNER_ID
     msg = (
-        "🤖 **Détecteur de Comptes Automatisés — Multi-Réseau**\n\n"
-        "**📱 Telegram :**\n"
-        "• `/analyser @pseudo` — Analyse le profil et calcule le score d'automatisation.\n"
-        "• *(Transfert de message)* — Évalue la dangerosité du texte et l'expéditeur.\n"
-        "• `/veille @pseudo` — Active la surveillance comportementale (temps de réponse).\n"
-        "• `/rapport @pseudo` — Affiche le rapport comportemental du compte surveillé.\n"
-        "• `/defi` — Génère une consigne ou défi anti-bot à transmettre.\n"
-        "• `/retour @pseudo humain|bot` — Enregistre une vérité terrain (CSV).\n\n"
-        "**🐦 X (Twitter) :**\n"
-        "• `/analyser_x @username` — Analyse un compte X (Bearer Token requis).\n\n"
-        "**🔗 LinkedIn :**\n"
-        "• `/analyser_linkedin <url|slug>` — Analyse un profil LinkedIn.\n\n"
-        "**ℹ️ Utilitaires :**\n"
-        "• `/whoami` — Affiche votre ID Telegram et votre statut d'accès.\n"
+        "🤖 Détecteur de Comptes Automatisés — Multi-Réseau\n\n"
+        "📱 Telegram :\n"
+        "• /analyser @pseudo — Analyse le profil et calcule le score d'automatisation.\n"
+        "• (Transfert de message) — Évalue la dangerosité du texte et l'expéditeur.\n"
+        "• /veille @pseudo — Active la surveillance comportementale (temps de réponse).\n"
+        "• /rapport @pseudo — Affiche le rapport comportemental du compte surveillé.\n"
+        "• /defi — Génère une consigne ou défi anti-bot à transmettre.\n"
+        "• /retour @pseudo humain|bot — Enregistre une vérité terrain (CSV).\n\n"
+        "🐦 X (Twitter) :\n"
+        "• /analyser_x @username — Analyse un compte X (Bearer Token requis).\n\n"
+        "🔗 LinkedIn :\n"
+        "• /analyser_ldn <url|slug> — Analyse un profil LinkedIn.\n\n"
+        "ℹ️ Utilitaires :\n"
+        "• /whoami — Affiche votre ID Telegram et votre statut d'accès.\n"
     )
     if is_owner:
         msg += (
-            "\n👑 **Commandes propriétaire :**\n"
-            "• `/acces` — Liste les utilisateurs autorisés.\n"
-            "• `/acces_ajouter <id> [@pseudo]` — Accorde l'accès à un utilisateur.\n"
-            "• `/acces_retirer <id>` — Retire l'accès d'un utilisateur.\n"
+            "\n👑 Commandes propriétaire :\n"
+            "• /acces — Liste les utilisateurs autorisés.\n"
+            "• /acces_ajouter <id> [@pseudo] — Accorde l'accès à un utilisateur.\n"
+            "• /acces_retirer <id> — Retire l'accès d'un utilisateur.\n"
         )
     await event.respond(msg)
 
@@ -577,10 +577,10 @@ async def cmd_whoami(event):
     else:
         statut = "⛔ Non autorisé"
     await event.respond(
-        f"ℹ️ **Votre ID Telegram :** `{user_id}`\n"
-        f"🔑 **Statut :** {statut}\n\n"
+        f"ℹ️ Votre ID Telegram : {user_id}\n"
+        f"🔑 Statut : {statut}\n\n"
         "📌 Transmettez cet ID au propriétaire du bot pour obtenir l'accès.\n"
-        "Il peut vous ajouter via `/acces_ajouter <votre_id>` ou depuis le dashboard web (onglet Paramètres)."
+        "Il peut vous ajouter via /acces_ajouter <votre_id> ou depuis le dashboard web (onglet Paramètres)."
     )
 
 
@@ -591,15 +591,15 @@ async def cmd_acces(event):
         await event.respond("⛔ Cette commande est réservée au propriétaire du bot.")
         return
     db_users = lister_utilisateurs_db()
-    lignes = [f"👑 **Propriétaire :** `{OWNER_ID}`\n"]
+    lignes = [f"👑 Propriétaire : {OWNER_ID}\n"]
     if db_users:
-        lignes.append(f"✅ **Utilisateurs autorisés ({len(db_users)}) :**")
+        lignes.append(f"✅ Utilisateurs autorisés ({len(db_users)}) :")
         for u in db_users:
             pseudo_str = f" (@{u['pseudo']}" + ")" if u.get("pseudo") else ""
-            lignes.append(f"  • `{u['chat_id']}`{pseudo_str} — {u['role']} — ajouté le {u['date_ajout'][:10]}")
+            lignes.append(f"  • {u['chat_id']}{pseudo_str} — {u['role']} — ajouté le {u['date_ajout'][:10]}")
     else:
         lignes.append("👤 Aucun autre utilisateur autorisé pour l'instant.\n"
-                      "• Via bot : `/acces_ajouter <telegram_id>`\n"
+                      "• Via bot : /acces_ajouter <telegram_id>\n"
                       "• Via dashboard : onglet Paramètres → Gestion des accès")
     await event.respond("\n".join(lignes))
 
@@ -617,18 +617,18 @@ async def cmd_acces_ajouter(event):
         return
     ajout = ajouter_utilisateur_db(target_id, pseudo)
     if not ajout:
-        await event.respond(f"⚠️ L'utilisateur `{target_id}` est déjà autorisé.")
+        await event.respond(f"⚠️ L'utilisateur {target_id} est déjà autorisé.")
         return
     await event.respond(
-        f"✅ **Accès accordé** à `{target_id}`{' (@' + pseudo + ')' if pseudo else ''}.\n"
+        f"✅ Accès accordé à {target_id}{' (@' + pseudo + ')' if pseudo else ''}.\n"
         "Un message de confirmation lui a été envoyé."
     )
     # Notification automatique à l'utilisateur
     try:
         await bot_client.send_message(
             target_id,
-            "🎉 **Accès accordé !**\n\n"
-            "Le propriétaire du bot vous a accordé l'accès à **Telegram Bot Sentinel**.\n"
+            "🎉 Accès accordé !\n\n"
+            "Le propriétaire du bot vous a accordé l'accès à Telegram Bot Sentinel.\n"
             "Tapez /start pour découvrir les commandes disponibles."
         )
     except Exception:
@@ -647,9 +647,9 @@ async def cmd_acces_retirer(event):
         return
     retire = retirer_utilisateur_db(target_id)
     if retire:
-        await event.respond(f"🚫 Accès **retiré** pour l'utilisateur `{target_id}`.")
+        await event.respond(f"🚫 Accès retiré pour l'utilisateur {target_id}.")
     else:
-        await event.respond(f"⚠️ Utilisateur `{target_id}` introuvable dans la base d'accès.")
+        await event.respond(f"⚠️ Utilisateur {target_id} introuvable dans la base d'accès.")
 
 
 @bot_client.on(events.NewMessage(pattern=r"^/analyser\s+(\S+)"))
@@ -658,7 +658,7 @@ async def cmd_analyser(event):
         await event.respond("⛔ Accès non autorisé.")
         return
     ident = event.pattern_match.group(1)
-    await event.respond(f"⏳ Analyse de `{ident}` en cours...")
+    await event.respond(f"⏳ Analyse de {ident} en cours...")
     try:
         ent = await user_client.get_entity(ident)
 
@@ -749,7 +749,7 @@ async def cmd_analyser(event):
         pseudo_str = f" (@{ent.username})" if ent.username else ""
 
         rep = [
-            f"🔎 {nom_affich}{pseudo_str} — ID `{ent.id}` (~{annee})",
+            f"🔎 {nom_affich}{pseudo_str} — ID {ent.id} (~{annee})",
             f"📊 Automatisation : {auto}% {niveau}",
         ]
         if raisons_auto:
@@ -766,7 +766,7 @@ async def cmd_analyser(event):
 
         await event.respond("\n".join(rep))
     except Exception as e:
-        await event.respond(f"❌ Impossible d'analyser `{ident}` : {e}")
+        await event.respond(f"❌ Impossible d'analyser {ident} : {e}")
 
 
 @bot_client.on(events.NewMessage(pattern=r"^/analyser_x\s+(\S+)"))
@@ -776,7 +776,7 @@ async def cmd_analyser_x(event):
         await event.respond("⛔ Accès non autorisé.")
         return
     ident = event.pattern_match.group(1)
-    await event.respond(f"⏳ Analyse X de `{ident}` en cours...")
+    await event.respond(f"⏳ Analyse X de {ident} en cours...")
     try:
         resultat = await analyser_compte_x(ident)
         if not resultat["ok"]:
@@ -796,17 +796,17 @@ async def cmd_analyser_x(event):
         )
         await event.respond(resultat["rapport_texte"])
     except Exception as e:
-        await event.respond(f"❌ Erreur lors de l'analyse X de `{ident}` : {e}")
+        await event.respond(f"❌ Erreur lors de l'analyse X de {ident} : {e}")
 
 
-@bot_client.on(events.NewMessage(pattern=r"^/analyser_linkedin\s+(\S+)"))
+@bot_client.on(events.NewMessage(pattern=r"^/analyser_ldn\s+(\S+)"))
 async def cmd_analyser_linkedin(event):
     """Analyse un profil LinkedIn via l'URL ou le slug."""
     if event.sender_id not in ALLOWED_IDS:
         await event.respond("⛔ Accès non autorisé.")
         return
     ident = event.pattern_match.group(1)
-    await event.respond(f"⏳ Analyse LinkedIn de `{ident}` en cours...")
+    await event.respond(f"⏳ Analyse LinkedIn de {ident} en cours...")
     try:
         resultat = await analyser_compte_linkedin(ident)
         if not resultat["ok"]:
@@ -826,7 +826,7 @@ async def cmd_analyser_linkedin(event):
         )
         await event.respond(resultat["rapport_texte"])
     except Exception as e:
-        await event.respond(f"❌ Erreur lors de l'analyse LinkedIn de `{ident}` : {e}")
+        await event.respond(f"❌ Erreur lors de l'analyse LinkedIn de {ident} : {e}")
 
 
 @bot_client.on(events.NewMessage(pattern=r"^/veille\s+(\S+)"))
@@ -839,11 +839,11 @@ async def cmd_veille(event):
         ent = await user_client.get_entity(ident)
         SURVEILLES.add(ent.id)
         await event.respond(
-            f"👁️ **Surveillance activée pour `{ident}` (ID: {ent.id}).**\n"
-            "Discutez normalement avec ce compte via votre Telegram, puis tapez `/rapport @pseudo` pour consulter la télémétrie."
+            f"👁️ Surveillance activée pour {ident} (ID: {ent.id}).\n"
+            "Discutez normalement avec ce compte via votre Telegram, puis tapez /rapport @pseudo pour consulter la télémétrie."
         )
     except Exception as e:
-        await event.respond(f"❌ Impossible d'activer la veille pour `{ident}` : {e}")
+        await event.respond(f"❌ Impossible d'activer la veille pour {ident} : {e}")
 
 
 @bot_client.on(events.NewMessage(pattern=r"^/rapport\s+(\S+)"))
@@ -857,14 +857,14 @@ async def cmd_rapport(event):
         score, raisons = rapport_comportement(ent.id)
         niveau = "ÉLEVÉ 🔴" if score >= 40 else "MOYEN 🟠" if score >= 20 else "FAIBLE 🟢"
         rep = [
-            f"📈 **Rapport comportemental pour :** `{ident}`",
-            f"⚡ **Score de rythme de réponse :** **{score}/60** ({niveau})",
+            f"📈 Rapport comportemental pour : {ident}",
+            f"⚡ Score de rythme de réponse : {score}/60 ({niveau})",
             "",
-            "📌 **Signaux observés :**",
+            "📌 Signaux observés :",
         ] + [f"  • {r}" for r in raisons]
         await event.respond("\n".join(rep))
     except Exception as e:
-        await event.respond(f"❌ Erreur lors de l'établissement du rapport pour `{ident}` : {e}")
+        await event.respond(f"❌ Erreur lors de l'établissement du rapport pour {ident} : {e}")
 
 
 @bot_client.on(events.NewMessage(pattern=r"^/defi"))
@@ -874,7 +874,7 @@ async def cmd_defi(event):
         return
     challenge = nouveau_defi()
     msg = (
-        "🎯 **Nouveau défi anti-bot généré !**\n\n"
+        "🎯 Nouveau défi anti-bot généré !\n\n"
         "Copiez-collez le message ci-dessous à votre interlocuteur suspect :\n"
         "───────────────\n"
         f"{challenge}\n"
@@ -901,7 +901,7 @@ async def cmd_retour(event):
             writer.writerow(["date_iso", "compte", "verdict"])
         writer.writerow([datetime.datetime.now().isoformat(), pseudo, verdict])
 
-    await event.respond(f"✅ Vérité terrain enregistrée avec succès dans `data/retours.csv` pour `{pseudo}` : **{verdict.upper()}**.")
+    await event.respond(f"✅ Vérité terrain enregistrée avec succès dans data/retours.csv pour {pseudo} : {verdict.upper()}.")
 
 
 @bot_client.on(events.NewMessage(func=lambda e: e.forward is not None))
@@ -910,12 +910,12 @@ async def message_transfere(event):
         return
     text = event.raw_text or ""
     danger, raisons = score_texte_danger(text)
-    rep = [f"📩 **Analyse du message transféré :**"]
+    rep = [f"📩 Analyse du message transféré :"]
 
     if danger > 0:
-        rep.append(f"⚠️ **Danger du texte ({danger} %) :** {', '.join(raisons)}")
+        rep.append(f"⚠️ Danger du texte ({danger} %) : {', '.join(raisons)}")
     else:
-        rep.append("🟢 **Danger du texte :** 0 % (aucun mot-clé suspect repéré dans le message)")
+        rep.append("🟢 Danger du texte : 0 % (aucun mot-clé suspect repéré dans le message)")
 
     origine = event.forward.sender_id
     if origine:
@@ -925,8 +925,8 @@ async def message_transfere(event):
             rep.append(f"\n⚠️ Compte d'origine non analysable : {e}")
     else:
         rep.append(
-            "\n🔒 *L'expéditeur original a masqué son profil dans les transferts Telegram. "
-            "Utilisez `/analyser @pseudo` si vous connaissez son identifiant.*"
+            "\n🔒 L'expéditeur original a masqué son profil dans les transferts Telegram. "
+            "Utilisez /analyser @pseudo si vous connaissez son identifiant."
         )
 
     await event.respond("\n".join(rep))
